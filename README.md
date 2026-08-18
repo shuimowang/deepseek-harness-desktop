@@ -10,7 +10,9 @@
 > 本项目是非官方社区封装，与 DeepSeek AI 没有隶属或背书关系。DeepSeek 与
 > DeepSeek Harness 名称及相关品牌资产归其权利人所有。
 
-![DeepSeek Harness Desktop 黑色鲸鱼图标](assets/dsh-whale-icon.png)
+<p align="center">
+  <img src="assets/dsh-whale-icon.png" width="96" alt="DeepSeek Harness Desktop 黑色鲸鱼图标">
+</p>
 
 ## 下载
 
