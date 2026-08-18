@@ -1,0 +1,13 @@
+bin/
+obj/
+.vs/
+.dotnet/
+.nuget/
+packages/
+dist/
+client-window*.png
+artifacts/
+output/
+TestResults/
+*.user
+*.suo

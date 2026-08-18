@@ -1,0 +1,177 @@
+<Window x:Class="DshDesktop.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:wv2="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf"
+        Title="DeepSeek Harness Desktop"
+        Icon="dsh.ico"
+        Width="1180"
+        Height="760"
+        MinWidth="760"
+        MinHeight="500"
+        WindowStartupLocation="CenterScreen"
+        Background="White"
+        FontFamily="Microsoft YaHei UI">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="48" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <Border Grid.Row="0"
+                Background="{StaticResource ChromeBrush}"
+                BorderBrush="{StaticResource BorderBrush}"
+                BorderThickness="0,0,0,1">
+            <Grid Margin="8,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                    <Button x:Name="BackButton"
+                            Style="{StaticResource ToolbarButton}"
+                            Content="&#xE72B;"
+                            ToolTip="后退"
+                            IsEnabled="False"
+                            Click="BackButton_Click" />
+                    <Button x:Name="ForwardButton"
+                            Style="{StaticResource ToolbarButton}"
+                            Content="&#xE72A;"
+                            ToolTip="前进"
+                            IsEnabled="False"
+                            Click="ForwardButton_Click" />
+                    <Button x:Name="RefreshButton"
+                            Style="{StaticResource ToolbarButton}"
+                            Content="&#xE72C;"
+                            ToolTip="刷新"
+                            Click="RefreshButton_Click" />
+                </StackPanel>
+
+                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Margin="12,0,0,0">
+                    <TextBlock Text="DeepSeek Harness"
+                               FontFamily="Segoe UI Semibold"
+                               FontSize="14"
+                               Foreground="{StaticResource TextBrush}"
+                               VerticalAlignment="Center" />
+                    <Border Width="1" Height="18" Background="{StaticResource BorderBrush}" Margin="12,0" />
+                    <Ellipse x:Name="StatusIndicator" Width="8" Height="8" Fill="#98A2B3" Margin="0,0,7,0" />
+                    <TextBlock x:Name="StatusText"
+                               Text="正在准备"
+                               FontSize="12"
+                               Foreground="{StaticResource MutedTextBrush}"
+                               VerticalAlignment="Center" />
+                </StackPanel>
+
+                <TextBlock x:Name="WorkspaceText"
+                           Grid.Column="2"
+                           Margin="18,0"
+                           HorizontalAlignment="Right"
+                           VerticalAlignment="Center"
+                           MaxWidth="360"
+                           TextTrimming="CharacterEllipsis"
+                           FontFamily="Segoe UI"
+                           FontSize="11"
+                           Foreground="{StaticResource MutedTextBrush}" />
+
+                <StackPanel Grid.Column="3" Orientation="Horizontal" VerticalAlignment="Center">
+                    <Button Style="{StaticResource ToolbarButton}"
+                            Content="&#xE8B7;"
+                            ToolTip="选择工作目录"
+                            Click="ChooseWorkspaceButton_Click" />
+                    <Button Style="{StaticResource ToolbarButton}"
+                            Content="&#xE777;"
+                            ToolTip="重新连接服务"
+                            Click="RestartButton_Click" />
+                    <Button Style="{StaticResource ToolbarButton}"
+                            Content="&#xE774;"
+                            ToolTip="在默认浏览器中打开"
+                            Click="OpenBrowserButton_Click" />
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <Grid Grid.Row="1" Background="White">
+            <wv2:WebView2 x:Name="Browser"
+                          Visibility="Collapsed"
+                          NavigationStarting="Browser_NavigationStarting"
+                          NavigationCompleted="Browser_NavigationCompleted" />
+
+            <Grid x:Name="StartupPanel" Background="White">
+                <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Width="360">
+                    <ProgressBar x:Name="StartupProgress"
+                                 Height="3"
+                                 IsIndeterminate="True"
+                                 Foreground="#2F6FED"
+                                 Background="#E8EBF0" />
+                    <TextBlock x:Name="StartupTitle"
+                               Text="正在启动 DeepSeek Harness"
+                               Margin="0,22,0,8"
+                               HorizontalAlignment="Center"
+                               FontSize="18"
+                               FontWeight="SemiBold"
+                               Foreground="{StaticResource TextBrush}" />
+                    <TextBlock x:Name="StartupDetail"
+                               Text="正在检查本地服务..."
+                               HorizontalAlignment="Center"
+                               TextAlignment="Center"
+                               FontSize="12"
+                               Foreground="{StaticResource MutedTextBrush}" />
+                </StackPanel>
+            </Grid>
+
+            <Grid x:Name="ErrorPanel" Background="White" Visibility="Collapsed">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+                <StackPanel Grid.Row="0"
+                            HorizontalAlignment="Center"
+                            VerticalAlignment="Center"
+                            Width="560">
+                    <TextBlock x:Name="ErrorTitle"
+                               Text="无法启动 DeepSeek Harness"
+                               HorizontalAlignment="Center"
+                               FontSize="20"
+                               FontWeight="SemiBold"
+                               Foreground="{StaticResource TextBrush}" />
+                    <TextBlock x:Name="ErrorMessage"
+                               Margin="0,12,0,20"
+                               TextAlignment="Center"
+                               TextWrapping="Wrap"
+                               FontSize="13"
+                               LineHeight="21"
+                               Foreground="{StaticResource MutedTextBrush}" />
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                        <Button x:Name="RetryCommandButton"
+                                Style="{StaticResource CommandButton}"
+                                Content="重试"
+                                Click="RetryButton_Click" />
+                        <Button x:Name="LogsCommandButton"
+                                Style="{StaticResource CommandButton}"
+                                Background="#E8EBF0"
+                                Foreground="{StaticResource TextBrush}"
+                                Content="查看日志"
+                                Click="ToggleLogsButton_Click" />
+                    </StackPanel>
+                </StackPanel>
+                <TextBox x:Name="LogsBox"
+                         Grid.Row="1"
+                         Visibility="Collapsed"
+                         Height="220"
+                         Margin="16"
+                         Padding="12"
+                         IsReadOnly="True"
+                         TextWrapping="NoWrap"
+                         HorizontalScrollBarVisibility="Auto"
+                         VerticalScrollBarVisibility="Auto"
+                         FontFamily="Cascadia Mono,Consolas"
+                         FontSize="11"
+                         Foreground="#D7DAE0"
+                         Background="#1F232B"
+                         BorderThickness="0" />
+            </Grid>
+        </Grid>
+    </Grid>
+</Window>

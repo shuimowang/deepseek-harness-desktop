@@ -1,0 +1,24 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Restore
+        run: dotnet restore .\DshDesktop.csproj
+      - name: Build
+        run: dotnet build .\DshDesktop.csproj -c Release --no-restore
+      - name: Audit NuGet packages
+        run: dotnet list .\DshDesktop.csproj package --vulnerable --include-transitive
