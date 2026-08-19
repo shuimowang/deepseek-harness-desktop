@@ -39,13 +39,30 @@
 ### 在线轻量版（推荐分享）
 
 `DeepSeekHarness-1.1.0-win-x64-online.zip` 小于 100 MB，适合 GitHub Release
-和蓝奏云。首次运行会自动：
+和蓝奏云。
+
+#### 运行环境
+
+- Windows 10 或 Windows 11 x64。
+- 首次启动时能访问 `nodejs.org` 和 `registry.npmjs.org`。如果使用代理、公司网络或防火墙，需要允许访问这两个地址。
+- 普通用户权限即可，不需要以管理员身份运行。
+- 解压目录、`%LOCALAPPDATA%` 和“文档”目录需要有写入权限。
+- 内嵌界面需要 Microsoft Edge WebView2 Runtime；Windows 10/11 通常已经包含。缺失时客户端仍可运行，但界面会改用系统默认浏览器打开。
+- 使用模型时，仍需按照 DeepSeek Harness 的要求配置可用的模型服务和 API 凭据；客户端不会附送模型额度或密钥。
+
+在线轻量版**不需要预装** .NET Runtime、Node.js、npm、DeepSeek Harness 或 Git。客户端为自包含发布，缺少的 Node.js 和 DeepSeek Harness 会在首次启动时自动准备。
+
+#### 首次启动
+
+客户端会自动：
 
 1. 从 nodejs.org 下载并校验 Node.js 24.14.1；
 2. 从 npm 安装固定版 `@deepseek-ai/dsh@0.1.0-rc.7`；
 3. 将运行时保存到 `%LOCALAPPDATA%\DeepSeekHarness\Runtime`，后续启动和客户端更新直接复用。
 
-首次安装需要联网，受网络和代理速度影响可能需要数分钟。不要在安装过程中强制结束进程；正常关闭窗口会安全取消安装。
+首次安装受网络和代理速度影响，可能需要数分钟。不要在安装过程中强制结束进程；正常关闭窗口会安全取消安装。客户端升级后，只要内置的运行时版本没有变化，就不需要重新下载。
+
+不要只按约 63 MB 的 ZIP 大小预留空间。当前版本解压后约占 142 MiB，首次准备的 Node.js、DeepSeek Harness 和 npm 缓存合计约占 490 MiB，WebView2 用户数据还会随使用增长。建议磁盘至少预留 **1 GB** 可用空间。
 
 ### 离线完整版
 
@@ -65,8 +82,9 @@ powershell -ExecutionPolicy Bypass -File .\Install-DesktopShortcut.ps1 -Launch
 powershell -ExecutionPolicy Bypass -File .\Install-DesktopShortcut.ps1 -Remove
 ```
 
-便携包无需单独安装 Node.js 或 .NET。Windows 10/11 通常已包含 Microsoft Edge
-WebView2 Runtime；缺失时客户端会在默认浏览器中打开 Harness。
+离线完整版已包含 Node.js、DeepSeek Harness 和客户端所需的 .NET 运行时，首次启动无需联网下载或安装这些组件，也不需要管理员权限。Windows 10/11 通常已包含 Microsoft Edge WebView2 Runtime；缺失时客户端会在默认浏览器中打开 Harness。
+
+“离线”只表示本地运行环境无需在线安装。实际调用云端模型时，仍然需要网络连接、可用的模型服务和对应的 API 凭据。
 
 当前发布物未购买商业代码签名证书，Windows SmartScreen 可能提示“未知发布者”。发布者应同时提供
 `.sha256` 文件，用户可用以下命令核对下载完整性：
