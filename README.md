@@ -32,7 +32,7 @@
 - 仅关闭客户端自己启动的服务，不终止外部 Harness 进程。
 - 跨域链接交给系统浏览器，WebView2 只保留本地 Harness 页面。
 - 可选择工作目录、重新连接、刷新、查看启动日志或在浏览器中打开。
-- WebView2 不可用时自动降级到系统浏览器。
+- WebView2 不可用时提供系统浏览器模式，不会自动启动外部程序。
 
 ## 给普通用户
 
@@ -47,7 +47,7 @@
 - 首次启动时能访问 `nodejs.org` 和 `registry.npmjs.org`。如果使用代理、公司网络或防火墙，需要允许访问这两个地址。
 - 普通用户权限即可，不需要以管理员身份运行。
 - 解压目录、`%LOCALAPPDATA%` 和“文档”目录需要有写入权限。
-- 内嵌界面需要 Microsoft Edge WebView2 Runtime；Windows 10/11 通常已经包含。缺失时客户端仍可运行，但界面会改用系统默认浏览器打开。
+- 内嵌界面需要 Microsoft Edge WebView2 Runtime；Windows 10/11 通常已经包含。缺失时客户端仍可运行，并会提示用户点击后在系统默认浏览器中打开。
 - 使用模型时，仍需按照 DeepSeek Harness 的要求配置可用的模型服务和 API 凭据；客户端不会附送模型额度或密钥。
 
 在线轻量版**不需要预装** .NET Runtime、Node.js、npm、DeepSeek Harness 或 Git。客户端为自包含发布，缺少的 Node.js 和 DeepSeek Harness 会在首次启动时自动准备。
@@ -82,7 +82,7 @@ powershell -ExecutionPolicy Bypass -File .\Install-DesktopShortcut.ps1 -Launch
 powershell -ExecutionPolicy Bypass -File .\Install-DesktopShortcut.ps1 -Remove
 ```
 
-离线完整版已包含 Node.js、DeepSeek Harness 和客户端所需的 .NET 运行时，首次启动无需联网下载或安装这些组件，也不需要管理员权限。Windows 10/11 通常已包含 Microsoft Edge WebView2 Runtime；缺失时客户端会在默认浏览器中打开 Harness。
+离线完整版已包含 Node.js、DeepSeek Harness 和客户端所需的 .NET 运行时，首次启动无需联网下载或安装这些组件，也不需要管理员权限。Windows 10/11 通常已包含 Microsoft Edge WebView2 Runtime；缺失时客户端会提示用户点击后在默认浏览器中打开 Harness。
 
 “离线”只表示本地运行环境无需在线安装。实际调用云端模型时，仍然需要网络连接、可用的模型服务和对应的 API 凭据。
 

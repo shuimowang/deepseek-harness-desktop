@@ -79,8 +79,8 @@ public partial class MainWindow : Window
 
             if (Environment.GetEnvironmentVariable("DSH_SHELL") == "1")
             {
-                OpenExternal(_server.AppUri.AbsoluteUri);
-                ShowExternalBrowserFallback("当前进程运行在 Harness 文件沙箱中，内嵌浏览器不可用。聊天界面已在系统浏览器中打开。");
+                ShowExternalBrowserFallback(
+                    "当前进程运行在 Harness 文件沙箱中，内嵌浏览器不可用。请点击下方按钮在系统浏览器中打开聊天界面。");
                 _serviceConnected = true;
                 return true;
             }
@@ -93,8 +93,8 @@ public partial class MainWindow : Window
             }
             catch (Exception exception)
             {
-                OpenExternal(_server.AppUri.AbsoluteUri);
-                ShowExternalBrowserFallback($"内嵌浏览器初始化失败，聊天界面已在系统浏览器中打开。\n\n{exception.Message}");
+                ShowExternalBrowserFallback(
+                    $"内嵌浏览器初始化失败。请点击下方按钮在系统浏览器中打开聊天界面。\n\n{exception.Message}");
                 _serviceConnected = true;
             }
 
@@ -180,9 +180,9 @@ public partial class MainWindow : Window
         StartupPanel.Visibility = Visibility.Collapsed;
         ErrorPanel.Visibility = Visibility.Visible;
         LogsBox.Visibility = Visibility.Collapsed;
-        ErrorTitle.Text = "已在浏览器中打开";
+        ErrorTitle.Text = "使用浏览器模式";
         ErrorMessage.Text = message;
-        RetryCommandButton.Content = "再次打开";
+        RetryCommandButton.Content = "在浏览器中打开";
         LogsCommandButton.Visibility = Visibility.Collapsed;
         SetStatus("浏览器模式", "#12B76A");
     }
