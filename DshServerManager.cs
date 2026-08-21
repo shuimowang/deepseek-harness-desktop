@@ -6,12 +6,13 @@ using System.Net.Http;
 using System.Net.Sockets;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Text.Json;
 
 namespace DshDesktop;
 
 internal sealed class DshServerManager : IDisposable
 {
-    public const string HarnessVersion = "0.1.0-rc.7";
+    public const string HarnessVersion = "0.1.1-rc.2";
 
     private const int MaxLogCharacters = 512 * 1024;
 
@@ -213,6 +214,7 @@ internal sealed class DshServerManager : IDisposable
         if (File.Exists(bundledNode) && File.Exists(bundledDsh))
         {
             ReportProgress($"正在使用内置 DeepSeek Harness {HarnessVersion}...");
+            PrepareProfileFallbackLinks(GetDshPackageDirectory(bundledDsh));
             var bundled = CommonStartInfo(bundledNode, workingDirectory);
             bundled.ArgumentList.Add(bundledDsh);
             AddWebArguments(bundled.ArgumentList, port);
@@ -226,6 +228,7 @@ internal sealed class DshServerManager : IDisposable
         {
             var provisioner = new OnlineRuntimeProvisioner(ReportProgress, AppendLog);
             var runtime = await provisioner.EnsureAsync(onlineSpec, cancellationToken);
+            PrepareProfileFallbackLinks(GetDshPackageDirectory(runtime.DshEntryPoint));
             var online = CommonStartInfo(runtime.NodeExecutable, workingDirectory);
             online.ArgumentList.Add(runtime.DshEntryPoint);
             AddWebArguments(online.ArgumentList, port);
@@ -238,6 +241,8 @@ internal sealed class DshServerManager : IDisposable
             ?? throw new FileNotFoundException(
                 "找不到 npx。请安装 Node.js 22.19 或 24 及更高版本：https://nodejs.org/");
 
+        PrepareProfileFallbackLinks(expectedDshPackageDirectory: null);
+
         return CmdStartInfo(
             npxCmd,
             workingDirectory,
@@ -247,8 +252,159 @@ internal sealed class DshServerManager : IDisposable
             "--host",
             "127.0.0.1",
             "--port",
-            port.ToString());
+            port.ToString(),
+            "--no-open");
     }
+
+    private void PrepareProfileFallbackLinks(string? expectedDshPackageDirectory)
+    {
+        var dshHome = Environment.GetEnvironmentVariable("DSH_HOME");
+        if (string.IsNullOrWhiteSpace(dshHome))
+        {
+            dshHome = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                ".dsh");
+        }
+
+        var fallbackDirectory = Path.Combine(
+            Path.GetFullPath(Environment.ExpandEnvironmentVariables(dshHome)),
+            "profiles",
+            "node_modules");
+        var managedDshLink = Path.Combine(fallbackDirectory, "@deepseek-ai", "dsh");
+        var previousInstallRoot = GetVerifiedDshInstallRoot(managedDshLink);
+        if (previousInstallRoot is null)
+        {
+            return;
+        }
+
+        var currentTarget = new DirectoryInfo(managedDshLink).ResolveLinkTarget(returnFinalTarget: false);
+        if (expectedDshPackageDirectory is not null &&
+            currentTarget is not null &&
+            PathsEqual(currentTarget.FullName, expectedDshPackageDirectory))
+        {
+            return;
+        }
+
+        try
+        {
+            var removed = RemoveManagedFallbackLinks(fallbackDirectory, previousInstallRoot);
+            AppendLog($"Removed {removed} stale DeepSeek Harness profile fallback link(s).");
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            throw new InvalidOperationException(
+                $"无法更新 DeepSeek Harness 的旧版依赖链接：{fallbackDirectory}。" +
+                "请关闭其他 DeepSeek Harness 进程后重试。",
+                ex);
+        }
+    }
+
+    private static string GetDshPackageDirectory(string entryPoint) =>
+        Directory.GetParent(Path.GetDirectoryName(entryPoint)
+            ?? throw new InvalidOperationException("DeepSeek Harness 入口路径无效。"))?.FullName
+        ?? throw new InvalidOperationException("DeepSeek Harness 包路径无效。");
+
+    private static string? GetVerifiedDshInstallRoot(string managedDshLink)
+    {
+        DirectoryInfo link;
+        try
+        {
+            link = new DirectoryInfo(managedDshLink);
+            if ((link.Attributes & FileAttributes.ReparsePoint) == 0)
+            {
+                return null;
+            }
+        }
+        catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
+        {
+            return null;
+        }
+
+        var target = link.ResolveLinkTarget(returnFinalTarget: false);
+        if (target is null)
+        {
+            return null;
+        }
+
+        var scopeDirectory = Directory.GetParent(target.FullName);
+        var nodeModulesDirectory = scopeDirectory?.Parent;
+        if (scopeDirectory?.Name != "@deepseek-ai" ||
+            nodeModulesDirectory?.Name != "node_modules")
+        {
+            return null;
+        }
+
+        if (!Directory.Exists(target.FullName))
+        {
+            return target.Name == "dsh" ? nodeModulesDirectory.FullName : null;
+        }
+
+        var manifestPath = Path.Combine(target.FullName, "package.json");
+        try
+        {
+            using var manifest = JsonDocument.Parse(File.ReadAllText(manifestPath));
+            if (!manifest.RootElement.TryGetProperty("name", out var name) ||
+                name.GetString() != "@deepseek-ai/dsh")
+            {
+                return null;
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
+        {
+            return null;
+        }
+
+        return nodeModulesDirectory.FullName;
+    }
+
+    private static int RemoveManagedFallbackLinks(string rootDirectory, string previousInstallRoot)
+    {
+        var removed = 0;
+        var pending = new Stack<DirectoryInfo>();
+        pending.Push(new DirectoryInfo(rootDirectory));
+        while (pending.TryPop(out var directory))
+        {
+            foreach (var entry in directory.EnumerateFileSystemInfos())
+            {
+                if ((entry.Attributes & FileAttributes.ReparsePoint) != 0)
+                {
+                    if (entry is DirectoryInfo link)
+                    {
+                        var target = link.ResolveLinkTarget(returnFinalTarget: false);
+                        if (target is not null && IsPathWithin(target.FullName, previousInstallRoot))
+                        {
+                            Directory.Delete(link.FullName);
+                            removed++;
+                        }
+                    }
+
+                    continue;
+                }
+
+                if (entry is DirectoryInfo childDirectory)
+                {
+                    pending.Push(childDirectory);
+                }
+            }
+        }
+
+        return removed;
+    }
+
+    private static bool IsPathWithin(string candidate, string root)
+    {
+        var normalizedCandidate = Path.GetFullPath(candidate).TrimEnd(Path.DirectorySeparatorChar);
+        var normalizedRoot = Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar);
+        return normalizedCandidate.StartsWith(
+            normalizedRoot + Path.DirectorySeparatorChar,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool PathsEqual(string left, string right) =>
+        string.Equals(
+            Path.GetFullPath(left).TrimEnd(Path.DirectorySeparatorChar),
+            Path.GetFullPath(right).TrimEnd(Path.DirectorySeparatorChar),
+            StringComparison.OrdinalIgnoreCase);
 
     private static void AddWebArguments(ICollection<string> arguments, int port)
     {
@@ -257,6 +413,7 @@ internal sealed class DshServerManager : IDisposable
         arguments.Add("127.0.0.1");
         arguments.Add("--port");
         arguments.Add(port.ToString());
+        arguments.Add("--no-open");
     }
 
     private static void ValidateSystemNode()
@@ -373,7 +530,8 @@ internal sealed class DshServerManager : IDisposable
             }
 
             var html = await response.Content.ReadAsStringAsync(cancellationToken);
-            return html.Contains("window.__DSH_BOOT__", StringComparison.Ordinal)
+            return (html.Contains("window.__DSH_BOOT__", StringComparison.Ordinal) ||
+                    html.Contains("globalThis[\"__DSH_BOOT__\"]", StringComparison.Ordinal))
                 ? ProbeResult.DeepSeekHarness
                 : ProbeResult.OtherHttpServer;
         }

@@ -7,13 +7,14 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>DeepSeekHarness</AssemblyName>
     <RootNamespace>DshDesktop</RootNamespace>
-    <Version>1.1.0</Version>
+    <Version>1.2.0</Version>
     <Authors>DeepSeek Harness Desktop contributors</Authors>
     <Product>DeepSeek Harness Community Desktop</Product>
     <Description>Unofficial community Windows desktop client for DeepSeek Harness.</Description>
     <Copyright>Copyright (c) 2026 DeepSeek Harness Desktop contributors</Copyright>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>dsh.ico</ApplicationIcon>
+    <DefaultItemExcludes>$(DefaultItemExcludes);artifacts\**</DefaultItemExcludes>
     <DebugType Condition="'$(Configuration)' == 'Release'">none</DebugType>
     <DebugSymbols Condition="'$(Configuration)' == 'Release'">false</DebugSymbols>
   </PropertyGroup>

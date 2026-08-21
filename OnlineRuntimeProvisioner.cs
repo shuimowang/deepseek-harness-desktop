@@ -267,7 +267,8 @@ internal sealed class OnlineRuntimeProvisioner
         startInfo.ArgumentList.Add("install");
         startInfo.ArgumentList.Add("--prefix");
         startInfo.ArgumentList.Add(stagingDirectory);
-        startInfo.ArgumentList.Add("--save-exact");
+        startInfo.ArgumentList.Add("--no-save");
+        startInfo.ArgumentList.Add("--no-package-lock");
         startInfo.ArgumentList.Add($"@deepseek-ai/dsh@{spec.HarnessVersion}");
         startInfo.ArgumentList.Add("--omit=dev");
         startInfo.ArgumentList.Add("--no-audit");

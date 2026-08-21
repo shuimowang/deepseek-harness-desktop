@@ -1,8 +1,8 @@
 [CmdletBinding()]
 param(
-    [string]$Version = '1.1.0',
+    [string]$Version = '1.2.0',
     [string]$NodeVersion = '24.14.1',
-    [string]$HarnessVersion = '0.1.0-rc.7',
+    [string]$HarnessVersion = '0.1.1-rc.2',
     [switch]$OnlineLite,
     [switch]$SkipRuntimeBundle
 )
@@ -127,7 +127,8 @@ elseif (-not $SkipRuntimeBundle) {
         Write-Host "Installing @deepseek-ai/dsh@$HarnessVersion..."
         & $npmCommand install `
             --prefix $dshDestination `
-            --save-exact `
+            --no-save `
+            --no-package-lock `
             "@deepseek-ai/dsh@$HarnessVersion" `
             --omit=dev `
             --no-audit `
