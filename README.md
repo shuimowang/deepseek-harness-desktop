@@ -38,7 +38,7 @@
 
 ### 在线轻量版（推荐分享）
 
-`DeepSeekHarness-1.2.0-win-x64-online.zip` 小于 100 MB，适合 GitHub Release
+`DeepSeekHarness-1.2.1-win-x64-online.zip` 小于 100 MB，适合 GitHub Release
 和蓝奏云。
 
 #### 运行环境
@@ -57,16 +57,18 @@
 客户端会自动：
 
 1. 从 nodejs.org 下载并校验 Node.js 24.14.1；
-2. 从 npm 安装固定版 `@deepseek-ai/dsh@0.1.1-rc.2`；
+2. 按随包提供的生产依赖锁文件，从 npm 安装固定版 `@deepseek-ai/dsh@0.1.1-rc.2`；
 3. 将运行时保存到 `%LOCALAPPDATA%\DeepSeekHarness\Runtime`，后续启动和客户端更新直接复用。
 
-首次安装受网络、代理速度和电脑性能影响，可能需要 5 至 20 分钟。不要在安装过程中强制结束进程；正常关闭窗口会安全取消安装。客户端升级后，只要内置的运行时版本没有变化，就不需要重新下载。
+`v1.2.1` 不再由每台电脑重新求解完整 npm 依赖树。首次安装通常需要 1 至 5 分钟，主要取决于网络和磁盘速度；窗口会持续显示当前阶段与已用时间。安装被正常关闭或文件被临时占用时，已下载内容会保留，下次启动自动恢复，不会重新从头等待。客户端升级后，只要内置的运行时版本没有变化，就不需要重新下载。
+
+安装诊断日志位于 `%LOCALAPPDATA%\DeepSeekHarness\Runtime\logs\install.log`。安装失败时，界面会同时显示保留目录和日志位置。
 
 不要只按约 63 MB 的 ZIP 大小预留空间。当前版本解压后约占 142 MiB，首次准备的 Node.js、DeepSeek Harness 和 npm 缓存合计约占 490 MiB，WebView2 用户数据还会随使用增长。建议磁盘至少预留 **1 GB** 可用空间。
 
 ### 离线完整版
 
-从发布包中获取 `DeepSeekHarness-1.2.0-win-x64.zip`：
+从发布包中获取 `DeepSeekHarness-1.2.1-win-x64.zip`：
 
 1. 将 ZIP 完整解压到一个普通文件夹，不要直接在压缩包里运行。
 2. 双击 `DeepSeekHarness.exe`。
@@ -90,7 +92,7 @@ powershell -ExecutionPolicy Bypass -File .\Install-DesktopShortcut.ps1 -Remove
 `.sha256` 文件，用户可用以下命令核对下载完整性：
 
 ```powershell
-Get-FileHash .\DeepSeekHarness-1.2.0-win-x64.zip -Algorithm SHA256
+Get-FileHash .\DeepSeekHarness-1.2.1-win-x64.zip -Algorithm SHA256
 ```
 
 ## 数据位置
@@ -138,7 +140,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\Build-Release.ps1
 
 - 自包含发布 Windows x64 WPF 客户端；
 - 从 nodejs.org 下载 Node.js，并按官方 `SHASUMS256.txt` 校验；
-- 安装固定版本的 DeepSeek Harness；
+- 使用提交到仓库的生产锁文件安装固定版本的 DeepSeek Harness；
 - 写入运行时清单和第三方声明；
 - 在 `artifacts` 目录生成 ZIP 与 SHA-256 文件。
 

@@ -20,5 +20,7 @@ jobs:
         run: dotnet restore .\DshDesktop.csproj
       - name: Build
         run: dotnet build .\DshDesktop.csproj -c Release --no-restore
+      - name: Validate locked DSH runtime
+        run: npm ci --prefix .\runtime\dsh-package --omit=dev --ignore-scripts --no-audit --no-fund --dry-run
       - name: Audit NuGet packages
         run: dotnet list .\DshDesktop.csproj package --vulnerable --include-transitive

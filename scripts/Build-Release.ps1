@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [string]$Version = '1.2.0',
+    [string]$Version = '1.2.1',
     [string]$NodeVersion = '24.14.1',
     [string]$HarnessVersion = '0.1.1-rc.2',
     [switch]$OnlineLite,
@@ -21,6 +21,20 @@ $packageName = "DeepSeekHarness-$Version-win-x64$packageSuffix"
 $packageDirectory = Join-Path $artifactRoot $packageName
 $workDirectory = Join-Path $artifactRoot '.release-work'
 $zipPath = Join-Path $artifactRoot "$packageName.zip"
+$runtimePackageDirectory = Join-Path $projectRoot 'runtime\dsh-package'
+$runtimePackageJson = Join-Path $runtimePackageDirectory 'package.json'
+$runtimePackageLock = Join-Path $runtimePackageDirectory 'package-lock.json'
+
+if (-not (Test-Path -LiteralPath $runtimePackageJson) -or
+    -not (Test-Path -LiteralPath $runtimePackageLock)) {
+    throw 'The locked DSH runtime package files are missing.'
+}
+
+$runtimePackage = Get-Content -LiteralPath $runtimePackageJson -Raw | ConvertFrom-Json
+$lockedHarnessVersion = $runtimePackage.dependencies.'@deepseek-ai/dsh'
+if ($lockedHarnessVersion -ne $HarnessVersion) {
+    throw "Runtime package locks DSH $lockedHarnessVersion, but the build requests $HarnessVersion."
+}
 
 function Assert-ProjectChildPath([string]$Path) {
     $resolved = [IO.Path]::GetFullPath($Path)
@@ -120,21 +134,24 @@ elseif (-not $SkipRuntimeBundle) {
 
     $dshDestination = Join-Path $packageDirectory 'runtime\dsh'
     New-Item -ItemType Directory -Path $dshDestination -Force | Out-Null
+    Copy-Item -LiteralPath $runtimePackageJson -Destination $dshDestination
+    Copy-Item -LiteralPath $runtimePackageLock -Destination $dshDestination
+    $npmCacheDirectory = Join-Path $artifactRoot 'cache\npm'
+    New-Item -ItemType Directory -Path $npmCacheDirectory -Force | Out-Null
     $npmCommand = Join-Path $nodeDestination 'npm.cmd'
     $previousPath = $env:PATH
     try {
         $env:PATH = "$nodeDestination;$previousPath"
-        Write-Host "Installing @deepseek-ai/dsh@$HarnessVersion..."
-        & $npmCommand install `
+        Write-Host "Installing locked @deepseek-ai/dsh@$HarnessVersion runtime..."
+        & $npmCommand ci `
             --prefix $dshDestination `
-            --no-save `
-            --no-package-lock `
-            "@deepseek-ai/dsh@$HarnessVersion" `
             --omit=dev `
             --no-audit `
-            --no-fund
+            --no-fund `
+            --prefer-offline `
+            --cache $npmCacheDirectory
         if ($LASTEXITCODE -ne 0) {
-            throw "npm install failed with exit code $LASTEXITCODE"
+            throw "npm ci failed with exit code $LASTEXITCODE"
         }
     }
     finally {
