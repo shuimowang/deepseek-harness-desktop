@@ -136,7 +136,10 @@ public partial class MainWindow : Window
         Browser.CoreWebView2.NewWindowRequested += (_, args) =>
         {
             args.Handled = true;
-            OpenExternal(args.Uri);
+            if (args.IsUserInitiated)
+            {
+                OpenExternal(args.Uri);
+            }
         };
         Browser.CoreWebView2.ProcessFailed += (_, _) => Dispatcher.Invoke(() =>
         {
@@ -200,7 +203,11 @@ public partial class MainWindow : Window
             !IsHarnessUri(destination))
         {
             e.Cancel = true;
-            OpenExternal(destination.AbsoluteUri);
+            if (e.IsUserInitiated)
+            {
+                OpenExternal(destination.AbsoluteUri);
+            }
+
             return;
         }
 
