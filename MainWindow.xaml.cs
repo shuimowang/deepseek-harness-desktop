@@ -138,7 +138,7 @@ public partial class MainWindow : Window
             args.Handled = true;
             if (args.IsUserInitiated)
             {
-                OpenExternal(args.Uri);
+                ConfirmAndOpenExternal(args.Uri);
             }
         };
         Browser.CoreWebView2.ProcessFailed += (_, _) => Dispatcher.Invoke(() =>
@@ -205,7 +205,7 @@ public partial class MainWindow : Window
             e.Cancel = true;
             if (e.IsUserInitiated)
             {
-                OpenExternal(destination.AbsoluteUri);
+                ConfirmAndOpenExternal(destination.AbsoluteUri);
             }
 
             return;
@@ -416,6 +416,20 @@ public partial class MainWindow : Window
         catch
         {
             // The embedded client remains usable when Windows has no URL handler.
+        }
+    }
+
+    private void ConfirmAndOpenExternal(string uri)
+    {
+        var result = MessageBox.Show(
+            this,
+            $"DeepSeek Harness 请求打开外部链接：\n\n{uri}\n\n是否使用默认浏览器继续？",
+            "打开外部链接",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Question);
+        if (result == MessageBoxResult.Yes)
+        {
+            OpenExternal(uri);
         }
     }
 
