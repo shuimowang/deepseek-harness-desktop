@@ -69,7 +69,11 @@ internal sealed record OnlineRuntimePaths(string NodeExecutable, string DshEntry
 
 internal sealed class OnlineRuntimeProvisioner
 {
-    private const int FileOperationAttempts = 10;
+    private const string InstallationMarkerName = ".install-complete.json";
+
+    private static readonly string ApplicationBaseDirectory =
+        Path.GetDirectoryName(typeof(OnlineRuntimeProvisioner).Assembly.Location)
+        ?? AppContext.BaseDirectory;
 
     private static readonly HttpClient DownloadClient = new()
     {
@@ -110,14 +114,14 @@ internal sealed class OnlineRuntimeProvisioner
         Directory.CreateDirectory(runtimeRoot);
         var stagingRoot = Path.Combine(runtimeRoot, "staging");
         Directory.CreateDirectory(stagingRoot);
-        CleanupStagingDirectories(stagingRoot, $"dsh-{spec.HarnessVersion}");
+        CleanupStagingDirectories(stagingRoot, preservedDirectoryName: string.Empty);
 
         if (!File.Exists(nodeExecutable))
         {
             await InstallNodeAsync(spec, runtimeRoot, nodeDirectory, cancellationToken);
         }
 
-        if (!IsExpectedDshVersion(dshDirectory, spec.HarnessVersion))
+        if (!IsCompleteDshInstallation(dshDirectory, spec.HarnessVersion))
         {
             await InstallHarnessAsync(
                 spec,
@@ -244,60 +248,43 @@ internal sealed class OnlineRuntimeProvisioner
         CancellationToken cancellationToken)
     {
         var nodeExecutable = Path.Combine(nodeDirectory, "node.exe");
-        var npmCli = Path.Combine(nodeDirectory, "node_modules", "npm", "bin", "npm-cli.js");
-        if (!File.Exists(nodeExecutable) || !File.Exists(npmCli))
+        var corepackCli = Path.Combine(nodeDirectory, "node_modules", "corepack", "dist", "corepack.js");
+        if (!File.Exists(nodeExecutable) || !File.Exists(corepackCli))
         {
-            throw new FileNotFoundException("Node.js 安装中缺少 npm，无法安装 DeepSeek Harness。");
+            throw new FileNotFoundException("Node.js 安装中缺少 Corepack，无法安装 DeepSeek Harness。");
         }
 
         _progress($"正在准备 DeepSeek Harness {spec.HarnessVersion}...");
-        var stagingDirectory = Path.Combine(
-            runtimeRoot,
-            "staging",
-            $"dsh-{spec.HarnessVersion}");
         var installLogPath = Path.Combine(runtimeRoot, "logs", "install.log");
+        Directory.CreateDirectory(dshDirectory);
+        TryDeleteFile(Path.Combine(dshDirectory, InstallationMarkerName));
 
-        if (IsExpectedDshVersion(stagingDirectory, spec.HarnessVersion))
-        {
-            _progress("发现上次已完成的安装，正在恢复...");
-            AppendInstallLog(runtimeRoot, $"Recovering completed staging directory: {stagingDirectory}");
-            await CommitStagingDirectoryAsync(
-                stagingDirectory,
-                dshDirectory,
-                runtimeRoot,
-                cancellationToken);
-            return;
-        }
-
-        await DeleteDirectoryWithRetryAsync(
-            stagingDirectory,
-            "旧的未完成安装目录",
-            runtimeRoot,
-            cancellationToken);
-        Directory.CreateDirectory(stagingDirectory);
-
-        var runtimePackageDirectory = Path.Combine(AppContext.BaseDirectory, "runtime", "dsh-package");
+        var runtimePackageDirectory = Path.Combine(ApplicationBaseDirectory, "runtime", "dsh-package");
         var packageJson = Path.Combine(runtimePackageDirectory, "package.json");
-        var packageLock = Path.Combine(runtimePackageDirectory, "package-lock.json");
-        if (!File.Exists(packageJson) || !File.Exists(packageLock))
+        var packageLock = Path.Combine(runtimePackageDirectory, "pnpm-lock.yaml");
+        var workspaceManifest = Path.Combine(runtimePackageDirectory, "pnpm-workspace.yaml");
+        var packageArchiveDirectory = Path.Combine(runtimePackageDirectory, "packages");
+        if (!File.Exists(packageJson) ||
+            !File.Exists(packageLock) ||
+            !File.Exists(workspaceManifest) ||
+            !Directory.Exists(packageArchiveDirectory))
         {
             throw new FileNotFoundException("在线安装清单缺失，请重新下载完整的在线轻量版压缩包。");
         }
 
-        if (!IsExpectedRuntimePackage(packageJson, packageLock, spec.HarnessVersion))
+        if (!IsExpectedRuntimePackage(runtimePackageDirectory, spec.HarnessVersion))
         {
             throw new InvalidDataException("在线安装清单与客户端要求的 DeepSeek Harness 版本不一致。");
         }
 
-        File.Copy(packageJson, Path.Combine(stagingDirectory, "package.json"), overwrite: true);
-        File.Copy(packageLock, Path.Combine(stagingDirectory, "package-lock.json"), overwrite: true);
+        CopyRuntimePackageDirectory(runtimePackageDirectory, dshDirectory);
         AppendInstallLog(
             runtimeRoot,
-            $"Starting locked install for DSH {spec.HarnessVersion}. Staging: {stagingDirectory}");
+            $"Starting or resuming locked install for DSH {spec.HarnessVersion}: {dshDirectory}");
 
         var startInfo = new ProcessStartInfo(nodeExecutable)
         {
-            WorkingDirectory = runtimeRoot,
+            WorkingDirectory = dshDirectory,
             UseShellExecute = false,
             CreateNoWindow = true,
             RedirectStandardOutput = true,
@@ -305,17 +292,20 @@ internal sealed class OnlineRuntimeProvisioner
             StandardOutputEncoding = Encoding.UTF8,
             StandardErrorEncoding = Encoding.UTF8
         };
-        startInfo.ArgumentList.Add(npmCli);
-        startInfo.ArgumentList.Add("ci");
-        startInfo.ArgumentList.Add("--prefix");
-        startInfo.ArgumentList.Add(stagingDirectory);
-        startInfo.ArgumentList.Add("--omit=dev");
-        startInfo.ArgumentList.Add("--no-audit");
-        startInfo.ArgumentList.Add("--no-fund");
-        startInfo.ArgumentList.Add("--prefer-offline");
+        startInfo.ArgumentList.Add(corepackCli);
+        startInfo.ArgumentList.Add("pnpm");
+        startInfo.ArgumentList.Add("install");
+        startInfo.ArgumentList.Add("--frozen-lockfile");
+        startInfo.ArgumentList.Add("--prod");
+        startInfo.ArgumentList.Add("--reporter");
+        startInfo.ArgumentList.Add("append-only");
+        startInfo.ArgumentList.Add("--store-dir");
+        startInfo.ArgumentList.Add(Path.Combine(runtimeRoot, "pnpm-store"));
         startInfo.Environment["PATH"] = nodeDirectory + Path.PathSeparator +
             (Environment.GetEnvironmentVariable("PATH") ?? string.Empty);
-        startInfo.Environment["npm_config_cache"] = Path.Combine(runtimeRoot, "npm-cache");
+        startInfo.Environment["COREPACK_HOME"] = Path.Combine(runtimeRoot, "corepack-cache");
+        startInfo.Environment["PNPM_HOME"] = Path.Combine(runtimeRoot, "pnpm-home");
+        startInfo.Environment["CI"] = "true";
 
         var tail = new Queue<string>();
         var tailLock = new object();
@@ -344,7 +334,7 @@ internal sealed class OnlineRuntimeProvisioner
         {
             if (!process.Start())
             {
-                throw new InvalidOperationException("无法启动 npm 安装进程。");
+                throw new InvalidOperationException("无法启动 pnpm 安装进程。");
             }
 
             process.BeginOutputReadLine();
@@ -363,7 +353,7 @@ internal sealed class OnlineRuntimeProvisioner
 
             await exitTask;
             process.WaitForExit();
-            AppendInstallLog(runtimeRoot, $"npm ci exited with code {process.ExitCode}.");
+            AppendInstallLog(runtimeRoot, $"pnpm install exited with code {process.ExitCode}.");
             if (process.ExitCode != 0)
             {
                 string details;
@@ -373,33 +363,29 @@ internal sealed class OnlineRuntimeProvisioner
                 }
 
                 throw new InvalidOperationException(
-                    $"DeepSeek Harness 安装失败（npm 代码 {process.ExitCode}）。\n{details}");
+                    $"DeepSeek Harness 安装失败（pnpm 代码 {process.ExitCode}）。\n{details}");
             }
 
             _progress("正在校验 DeepSeek Harness 安装...");
-            if (!IsExpectedDshVersion(stagingDirectory, spec.HarnessVersion))
+            if (!IsExpectedDshVersion(dshDirectory, spec.HarnessVersion))
             {
-                throw new InvalidDataException("npm 安装完成，但 DeepSeek Harness 版本校验失败。");
+                throw new InvalidDataException("pnpm 安装完成，但 DeepSeek Harness 版本校验失败。");
             }
 
-            _progress("正在提交 DeepSeek Harness 运行时...");
-            await CommitStagingDirectoryAsync(
-                stagingDirectory,
-                dshDirectory,
-                runtimeRoot,
-                cancellationToken);
+            _progress("正在完成 DeepSeek Harness 运行时安装...");
+            await WriteInstallationMarkerAsync(dshDirectory, spec.HarnessVersion, cancellationToken);
             AppendInstallLog(runtimeRoot, $"Installed DSH {spec.HarnessVersion}: {dshDirectory}");
         }
         catch (OperationCanceledException)
         {
             await StopProcessAsync(process);
-            AppendInstallLog(runtimeRoot, "Installation was cancelled; staging was preserved for retry.");
+            AppendInstallLog(runtimeRoot, "Installation was cancelled; the partial runtime was preserved for retry.");
             throw;
         }
         catch (Exception exception)
         {
             await StopProcessAsync(process);
-            AppendInstallLog(runtimeRoot, $"Installation failed; staging was preserved. {exception}");
+            AppendInstallLog(runtimeRoot, $"Installation failed; the partial runtime was preserved. {exception}");
             throw new InvalidOperationException(
                 $"{exception.Message}\n\n安装文件已保留，下次重试会自动恢复。\n安装日志：{installLogPath}",
                 exception);
@@ -421,97 +407,6 @@ internal sealed class OnlineRuntimeProvisioner
         }
     }
 
-    private async Task CommitStagingDirectoryAsync(
-        string stagingDirectory,
-        string destinationDirectory,
-        string runtimeRoot,
-        CancellationToken cancellationToken)
-    {
-        if (IsExpectedDshVersion(destinationDirectory, Path.GetFileName(destinationDirectory)))
-        {
-            TryDeleteDirectory(stagingDirectory);
-            return;
-        }
-
-        await DeleteDirectoryWithRetryAsync(
-            destinationDirectory,
-            "旧的 DeepSeek Harness 运行时",
-            runtimeRoot,
-            cancellationToken);
-        Directory.CreateDirectory(Path.GetDirectoryName(destinationDirectory)!);
-
-        Exception? lastException = null;
-        for (var attempt = 1; attempt <= FileOperationAttempts; attempt++)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            try
-            {
-                Directory.Move(stagingDirectory, destinationDirectory);
-                return;
-            }
-            catch (Exception exception) when (
-                exception is IOException or UnauthorizedAccessException or System.Security.SecurityException)
-            {
-                lastException = exception;
-                AppendInstallLog(
-                    runtimeRoot,
-                    $"Commit attempt {attempt}/{FileOperationAttempts} failed: {exception.Message}");
-                if (attempt < FileOperationAttempts)
-                {
-                    _progress($"运行时文件暂时被占用，正在重试（{attempt}/{FileOperationAttempts}）...");
-                    await Task.Delay(GetRetryDelay(attempt), cancellationToken);
-                }
-            }
-        }
-
-        throw new IOException(
-            $"无法提交 DeepSeek Harness 运行时，已重试 {FileOperationAttempts} 次。" +
-            $" 安装文件已保留在：{stagingDirectory}",
-            lastException);
-    }
-
-    private static async Task DeleteDirectoryWithRetryAsync(
-        string path,
-        string description,
-        string runtimeRoot,
-        CancellationToken cancellationToken)
-    {
-        if (!Directory.Exists(path))
-        {
-            return;
-        }
-
-        Exception? lastException = null;
-        for (var attempt = 1; attempt <= FileOperationAttempts; attempt++)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            try
-            {
-                Directory.Delete(path, recursive: true);
-                return;
-            }
-            catch (Exception exception) when (
-                exception is IOException or UnauthorizedAccessException or System.Security.SecurityException)
-            {
-                lastException = exception;
-                AppendInstallLog(
-                    runtimeRoot,
-                    $"Delete attempt {attempt}/{FileOperationAttempts} for {description} failed: {exception.Message}");
-                if (attempt < FileOperationAttempts)
-                {
-                    await Task.Delay(GetRetryDelay(attempt), cancellationToken);
-                }
-            }
-        }
-
-        throw new IOException($"无法清理{description}：{path}", lastException);
-    }
-
-    private static TimeSpan GetRetryDelay(int attempt)
-    {
-        return TimeSpan.FromMilliseconds(Math.Min(250 * Math.Pow(2, attempt - 1), 4000));
-    }
-
     private static string FormatElapsed(TimeSpan elapsed)
     {
         return elapsed.TotalMinutes >= 1
@@ -520,31 +415,76 @@ internal sealed class OnlineRuntimeProvisioner
     }
 
     private static bool IsExpectedRuntimePackage(
-        string packageJsonPath,
-        string packageLockPath,
+        string runtimePackageDirectory,
         string expectedVersion)
     {
         try
         {
+            var packageJsonPath = Path.Combine(runtimePackageDirectory, "package.json");
+            var packageLockPath = Path.Combine(runtimePackageDirectory, "pnpm-lock.yaml");
+            var workspaceManifestPath = Path.Combine(runtimePackageDirectory, "pnpm-workspace.yaml");
+            var sourceManifestPath = Path.Combine(runtimePackageDirectory, "SOURCE.json");
             using var packageDocument = JsonDocument.Parse(File.ReadAllText(packageJsonPath));
-            var packageVersion = packageDocument.RootElement
-                .GetProperty("dependencies")
-                .GetProperty("@deepseek-ai/dsh")
-                .GetString();
+            var dependencies = packageDocument.RootElement.GetProperty("dependencies");
+            var packageSpec = dependencies.GetProperty("@deepseek-ai/dsh").GetString();
+            var packageManager = packageDocument.RootElement.GetProperty("packageManager").GetString();
+            using var sourceDocument = JsonDocument.Parse(File.ReadAllText(sourceManifestPath));
+            var sourceVersion = sourceDocument.RootElement.GetProperty("harnessVersion").GetString();
+            var lockText = File.ReadAllText(packageLockPath);
+            var workspaceText = File.ReadAllText(workspaceManifestPath);
 
-            using var lockDocument = JsonDocument.Parse(File.ReadAllText(packageLockPath));
-            var lockVersion = lockDocument.RootElement
-                .GetProperty("packages")
-                .GetProperty(string.Empty)
-                .GetProperty("dependencies")
-                .GetProperty("@deepseek-ai/dsh")
-                .GetString();
-            return packageVersion == expectedVersion && lockVersion == expectedVersion;
+            if (packageSpec is null ||
+                !packageSpec.StartsWith("file:packages/", StringComparison.Ordinal) ||
+                !packageSpec.Contains(expectedVersion, StringComparison.Ordinal) ||
+                packageManager != "pnpm@11.7.0" ||
+                sourceVersion != expectedVersion ||
+                !lockText.Contains(packageSpec, StringComparison.Ordinal) ||
+                !workspaceText.Contains($"'@deepseek-ai/dsh': '{packageSpec}'", StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            var runtimeRoot = Path.GetFullPath(runtimePackageDirectory)
+                .TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+            foreach (var dependency in dependencies.EnumerateObject())
+            {
+                var dependencySpec = dependency.Value.GetString();
+                if (dependencySpec is null ||
+                    !dependencySpec.StartsWith("file:packages/", StringComparison.Ordinal))
+                {
+                    return false;
+                }
+
+                var archivePath = Path.GetFullPath(Path.Combine(
+                    runtimePackageDirectory,
+                    dependencySpec["file:".Length..].Replace('/', Path.DirectorySeparatorChar)));
+                if (!archivePath.StartsWith(runtimeRoot, StringComparison.OrdinalIgnoreCase) ||
+                    !File.Exists(archivePath))
+                {
+                    return false;
+                }
+            }
+
+            return true;
         }
         catch (Exception exception) when (
-            exception is IOException or JsonException or KeyNotFoundException)
+            exception is IOException or JsonException or KeyNotFoundException or InvalidOperationException)
         {
             return false;
+        }
+    }
+
+    private static void CopyRuntimePackageDirectory(string sourceDirectory, string destinationDirectory)
+    {
+        foreach (var sourcePath in Directory.EnumerateFiles(
+            sourceDirectory,
+            "*",
+            SearchOption.AllDirectories))
+        {
+            var relativePath = Path.GetRelativePath(sourceDirectory, sourcePath);
+            var destinationPath = Path.Combine(destinationDirectory, relativePath);
+            Directory.CreateDirectory(Path.GetDirectoryName(destinationPath)!);
+            File.Copy(sourcePath, destinationPath, overwrite: true);
         }
     }
 
@@ -584,6 +524,46 @@ internal sealed class OnlineRuntimeProvisioner
         {
             return false;
         }
+    }
+
+    private static bool IsCompleteDshInstallation(string installDirectory, string expectedVersion)
+    {
+        if (!IsExpectedDshVersion(installDirectory, expectedVersion))
+        {
+            return false;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(File.ReadAllText(
+                Path.Combine(installDirectory, InstallationMarkerName)));
+            return document.RootElement.GetProperty("harnessVersion").GetString() == expectedVersion &&
+                document.RootElement.GetProperty("packageManager").GetString() == "pnpm@11.7.0";
+        }
+        catch (Exception exception) when (
+            exception is IOException or JsonException or KeyNotFoundException)
+        {
+            return false;
+        }
+    }
+
+    private static async Task WriteInstallationMarkerAsync(
+        string installDirectory,
+        string harnessVersion,
+        CancellationToken cancellationToken)
+    {
+        var markerPath = Path.Combine(installDirectory, InstallationMarkerName);
+        var temporaryPath = markerPath + ".tmp";
+        var json = JsonSerializer.Serialize(
+            new
+            {
+                harnessVersion,
+                packageManager = "pnpm@11.7.0",
+                installedAtUtc = DateTime.UtcNow.ToString("O")
+            },
+            new JsonSerializerOptions { WriteIndented = true });
+        await File.WriteAllTextAsync(temporaryPath, json, cancellationToken);
+        File.Move(temporaryPath, markerPath, overwrite: true);
     }
 
     private static bool HasExpectedHash(string path, string expectedHash)

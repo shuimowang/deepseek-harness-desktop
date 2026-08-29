@@ -1,8 +1,8 @@
 [CmdletBinding()]
 param(
-    [string]$Version = '1.2.1',
+    [string]$Version = '1.4.0',
     [string]$NodeVersion = '24.14.1',
-    [string]$HarnessVersion = '0.1.1-rc.2',
+    [string]$HarnessVersion = '0.1.2-alpha.1',
     [switch]$OnlineLite,
     [switch]$SkipRuntimeBundle
 )
@@ -16,6 +16,7 @@ if ($OnlineLite -and $SkipRuntimeBundle) {
 
 $projectRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $artifactRoot = Join-Path $projectRoot 'artifacts'
+$buildCacheRoot = Join-Path $projectRoot '.build-cache'
 $packageSuffix = if ($OnlineLite) { '-online' } elseif ($SkipRuntimeBundle) { '-client-only' } else { '' }
 $packageName = "DeepSeekHarness-$Version-win-x64$packageSuffix"
 $packageDirectory = Join-Path $artifactRoot $packageName
@@ -23,17 +24,43 @@ $workDirectory = Join-Path $artifactRoot '.release-work'
 $zipPath = Join-Path $artifactRoot "$packageName.zip"
 $runtimePackageDirectory = Join-Path $projectRoot 'runtime\dsh-package'
 $runtimePackageJson = Join-Path $runtimePackageDirectory 'package.json'
-$runtimePackageLock = Join-Path $runtimePackageDirectory 'package-lock.json'
+$runtimePnpmLock = Join-Path $runtimePackageDirectory 'pnpm-lock.yaml'
+$runtimePnpmWorkspace = Join-Path $runtimePackageDirectory 'pnpm-workspace.yaml'
+$runtimePackageSource = Join-Path $runtimePackageDirectory 'SOURCE.json'
+$runtimePackageArchives = Join-Path $runtimePackageDirectory 'packages'
 
 if (-not (Test-Path -LiteralPath $runtimePackageJson) -or
-    -not (Test-Path -LiteralPath $runtimePackageLock)) {
+    -not (Test-Path -LiteralPath $runtimePnpmLock) -or
+    -not (Test-Path -LiteralPath $runtimePnpmWorkspace) -or
+    -not (Test-Path -LiteralPath $runtimePackageSource) -or
+    -not (Test-Path -LiteralPath $runtimePackageArchives)) {
     throw 'The locked DSH runtime package files are missing.'
 }
 
 $runtimePackage = Get-Content -LiteralPath $runtimePackageJson -Raw | ConvertFrom-Json
-$lockedHarnessVersion = $runtimePackage.dependencies.'@deepseek-ai/dsh'
-if ($lockedHarnessVersion -ne $HarnessVersion) {
+$runtimeSource = Get-Content -LiteralPath $runtimePackageSource -Raw | ConvertFrom-Json
+$harnessPackageSpec = $runtimePackage.dependencies.'@deepseek-ai/dsh'
+$lockedHarnessVersion = $runtimeSource.harnessVersion
+if ($harnessPackageSpec -notmatch '^file:packages/' -or
+    $harnessPackageSpec -notmatch [regex]::Escape($HarnessVersion) -or
+    $runtimePackage.packageManager -ne 'pnpm@11.7.0' -or
+    $lockedHarnessVersion -ne $HarnessVersion -or
+    $runtimeSource.harnessVersion -ne $HarnessVersion -or
+    $runtimeSource.upstreamCommit -notmatch '^[0-9a-f]{40}$') {
     throw "Runtime package locks DSH $lockedHarnessVersion, but the build requests $HarnessVersion."
+}
+
+$runtimePrefix = $runtimePackageDirectory.TrimEnd([IO.Path]::DirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar
+foreach ($dependency in $runtimePackage.dependencies.PSObject.Properties) {
+    $packageSpec = [string]$dependency.Value
+    if ($packageSpec -notmatch '^file:packages/[^/]+\.tgz$') {
+        throw "Runtime dependency $($dependency.Name) is not a local package tarball: $packageSpec"
+    }
+    $archivePath = [IO.Path]::GetFullPath((Join-Path $runtimePackageDirectory $packageSpec.Substring('file:'.Length)))
+    if (-not $archivePath.StartsWith($runtimePrefix, [StringComparison]::OrdinalIgnoreCase) -or
+        -not (Test-Path -LiteralPath $archivePath)) {
+        throw "Runtime dependency archive is missing or outside the package directory: $archivePath"
+    }
 }
 
 function Assert-ProjectChildPath([string]$Path) {
@@ -68,12 +95,14 @@ New-Item -ItemType Directory -Path $artifactRoot -Force | Out-Null
 New-Item -ItemType Directory -Path $workDirectory -Force | Out-Null
 
 Write-Host "Publishing $packageName..."
+$includeOnlineRuntimePackage = if ($OnlineLite) { 'true' } else { 'false' }
 & dotnet publish (Join-Path $projectRoot 'DshDesktop.csproj') `
     -c Release `
     -r win-x64 `
     --self-contained true `
     -o $packageDirectory `
     -p:Version=$Version `
+    -p:IncludeOnlineRuntimePackage=$includeOnlineRuntimePackage `
     -p:PublishReadyToRun=true
 if ($LASTEXITCODE -ne 0) {
     throw "dotnet publish failed with exit code $LASTEXITCODE"
@@ -103,7 +132,7 @@ if ($OnlineLite) {
     } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $packageDirectory 'runtime-mode.json') -Encoding utf8
 }
 elseif (-not $SkipRuntimeBundle) {
-    $cacheDirectory = Join-Path $artifactRoot 'cache'
+    $cacheDirectory = $buildCacheRoot
     New-Item -ItemType Directory -Path $cacheDirectory -Force | Out-Null
 
     $nodeArchiveName = "node-v$NodeVersion-win-x64.zip"
@@ -135,27 +164,42 @@ elseif (-not $SkipRuntimeBundle) {
     $dshDestination = Join-Path $packageDirectory 'runtime\dsh'
     New-Item -ItemType Directory -Path $dshDestination -Force | Out-Null
     Copy-Item -LiteralPath $runtimePackageJson -Destination $dshDestination
-    Copy-Item -LiteralPath $runtimePackageLock -Destination $dshDestination
-    $npmCacheDirectory = Join-Path $artifactRoot 'cache\npm'
-    New-Item -ItemType Directory -Path $npmCacheDirectory -Force | Out-Null
-    $npmCommand = Join-Path $nodeDestination 'npm.cmd'
+    Copy-Item -LiteralPath $runtimePnpmLock -Destination $dshDestination
+    Copy-Item -LiteralPath $runtimePnpmWorkspace -Destination $dshDestination
+    Copy-Item -LiteralPath $runtimePackageSource -Destination $dshDestination
+    Copy-Item -LiteralPath $runtimePackageArchives `
+        -Destination $dshDestination -Recurse
+    $pnpmStoreDirectory = Join-Path $buildCacheRoot 'pnpm-store'
+    $corepackCacheDirectory = Join-Path $buildCacheRoot 'corepack'
+    New-Item -ItemType Directory -Path $pnpmStoreDirectory -Force | Out-Null
+    New-Item -ItemType Directory -Path $corepackCacheDirectory -Force | Out-Null
+    $nodeCommand = Join-Path $nodeDestination 'node.exe'
+    $corepackCli = Join-Path $nodeDestination 'node_modules\corepack\dist\corepack.js'
     $previousPath = $env:PATH
+    $previousCorepackHome = $env:COREPACK_HOME
+    $previousPnpmHome = $env:PNPM_HOME
     try {
         $env:PATH = "$nodeDestination;$previousPath"
+        $env:COREPACK_HOME = $corepackCacheDirectory
+        $env:PNPM_HOME = Join-Path $buildCacheRoot 'pnpm-home'
         Write-Host "Installing locked @deepseek-ai/dsh@$HarnessVersion runtime..."
-        & $npmCommand ci `
-            --prefix $dshDestination `
-            --omit=dev `
-            --no-audit `
-            --no-fund `
-            --prefer-offline `
-            --cache $npmCacheDirectory
+        Push-Location $dshDestination
+        & $nodeCommand $corepackCli pnpm install `
+            --frozen-lockfile `
+            --prod `
+            --reporter append-only `
+            --store-dir $pnpmStoreDirectory
         if ($LASTEXITCODE -ne 0) {
-            throw "npm ci failed with exit code $LASTEXITCODE"
+            throw "pnpm install failed with exit code $LASTEXITCODE"
         }
     }
     finally {
+        if ((Get-Location).Path -eq $dshDestination) {
+            Pop-Location
+        }
         $env:PATH = $previousPath
+        $env:COREPACK_HOME = $previousCorepackHome
+        $env:PNPM_HOME = $previousPnpmHome
     }
 
     [ordered]@{
@@ -175,6 +219,7 @@ $zipHash = (Get-FileHash -LiteralPath $zipPath -Algorithm SHA256).Hash
     Set-Content -LiteralPath "$zipPath.sha256" -Encoding ascii
 
 Remove-Item -LiteralPath $workDirectory -Recurse -Force
+& (Join-Path $PSScriptRoot 'Cleanup-Artifacts.ps1') -KeepVersion $Version
 
 Write-Host "Created: $zipPath"
 Write-Host "SHA-256: $zipHash"

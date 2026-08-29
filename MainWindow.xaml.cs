@@ -12,7 +12,8 @@ public partial class MainWindow : Window
 {
     private static readonly Uri PreferredAppUri = new("http://127.0.0.1:3080/");
 
-    private readonly DshServerManager _server = new(PreferredAppUri);
+    private readonly DshServerManager _server;
+    private readonly RecoveryManager _recovery;
     private readonly SemaphoreSlim _operationGate = new(1, 1);
     private DesktopSettings _settings = DesktopSettings.Load();
     private readonly CancellationTokenSource _lifetime = new();
@@ -21,10 +22,13 @@ public partial class MainWindow : Window
     private bool _serviceConnected;
     private bool _isRecovering;
     private bool _isClosing;
+    private bool _safeMode;
     private int _automaticRecoveryAttempts;
 
     public MainWindow()
     {
+        _recovery = new RecoveryManager();
+        _server = new DshServerManager(PreferredAppUri);
         InitializeComponent();
         WorkspaceText.Text = _settings.WorkingDirectory;
         WorkspaceText.ToolTip = _settings.WorkingDirectory;
@@ -50,7 +54,7 @@ public partial class MainWindow : Window
         _ = MonitorServerAsync(_lifetime.Token);
     }
 
-    private async Task<bool> StartAndConnectAsync(bool restartOwnedServer)
+    private async Task<bool> StartAndConnectAsync(bool restartOwnedServer, bool safeMode = false)
     {
         if (!await _operationGate.WaitAsync(0))
         {
@@ -59,19 +63,36 @@ public partial class MainWindow : Window
 
         try
         {
+            _safeMode = safeMode;
             _serviceConnected = false;
+            Title = safeMode
+                ? "DeepSeek Harness Desktop（安全模式）"
+                : "DeepSeek Harness Desktop";
             ShowStartup(
-                restartOwnedServer ? "正在重新连接" : "正在启动 DeepSeek Harness",
+                safeMode
+                    ? "正在启动安全模式"
+                    : restartOwnedServer ? "正在重新连接" : "正在启动 DeepSeek Harness",
                 "正在检查本地服务...");
-            SetStatus("正在启动", "#D99100");
+            SetStatus(safeMode ? "安全模式启动中" : "正在启动", "#D99100");
+
+            var dshHomeOverride = safeMode ? _recovery.PrepareSafeHome() : null;
+            _server.RecordClientLog(safeMode
+                ? $"Starting safe mode with isolated DSH_HOME: {dshHomeOverride}"
+                : "Starting normal mode.");
 
             if (restartOwnedServer && _server.StartedByClient)
             {
-                await _server.RestartAsync(_settings.WorkingDirectory, _lifetime.Token);
+                await _server.RestartAsync(
+                    _settings.WorkingDirectory,
+                    _lifetime.Token,
+                    dshHomeOverride);
             }
             else
             {
-                await _server.EnsureRunningAsync(_settings.WorkingDirectory, _lifetime.Token);
+                await _server.EnsureRunningAsync(
+                    _settings.WorkingDirectory,
+                    _lifetime.Token,
+                    dshHomeOverride);
             }
 
             StartupDetail.Text = "服务已就绪，正在加载界面...";
@@ -171,6 +192,9 @@ public partial class MainWindow : Window
         ErrorMessage.Text = exception.Message;
         RetryCommandButton.Content = "重试";
         LogsCommandButton.Visibility = Visibility.Visible;
+        RecoveryActionsPanel.Visibility = Visibility.Visible;
+        RestoreConfigCommandButton.IsEnabled = _recovery.HasLastKnownGood;
+        OpenLogFolderCommandButton.IsEnabled = _server.LogFilePath is not null;
         LogsBox.Text = _server.Logs;
         LogsBox.ScrollToEnd();
         SetStatus("启动失败", "#D92D20");
@@ -187,6 +211,7 @@ public partial class MainWindow : Window
         ErrorMessage.Text = message;
         RetryCommandButton.Content = "在浏览器中打开";
         LogsCommandButton.Visibility = Visibility.Collapsed;
+        RecoveryActionsPanel.Visibility = Visibility.Collapsed;
         SetStatus("浏览器模式", "#12B76A");
     }
 
@@ -229,7 +254,11 @@ public partial class MainWindow : Window
             StartupPanel.Visibility = Visibility.Collapsed;
             ErrorPanel.Visibility = Visibility.Collapsed;
             Browser.Visibility = Visibility.Visible;
-            SetStatus(_server.StartedByClient ? "客户端服务已连接" : "已连接现有服务", "#12B76A");
+            SetStatus(
+                _server.IsSafeMode
+                    ? "安全模式"
+                    : _server.StartedByClient ? "客户端服务已连接" : "已连接现有服务",
+                _server.IsSafeMode ? "#D99100" : "#12B76A");
             return;
         }
 
@@ -245,6 +274,10 @@ public partial class MainWindow : Window
     private async Task MonitorServerAsync(CancellationToken cancellationToken)
     {
         var consecutiveFailures = 0;
+        string? observedConfigFingerprint = null;
+        string? savedConfigFingerprint = null;
+        DateTimeOffset? configurationStableSince = null;
+        DateTimeOffset? serviceHealthySince = null;
         try
         {
             while (true)
@@ -259,8 +292,48 @@ public partial class MainWindow : Window
                 if (await _server.IsHarnessReadyAsync(cancellationToken))
                 {
                     consecutiveFailures = 0;
+                    serviceHealthySince ??= DateTimeOffset.UtcNow;
+                    if (DateTimeOffset.UtcNow - serviceHealthySince >= TimeSpan.FromSeconds(30))
+                    {
+                        _automaticRecoveryAttempts = 0;
+                    }
+
+                    if (!_server.IsSafeMode && _server.StartedByClient)
+                    {
+                        var fingerprint = _recovery.GetCurrentFingerprint();
+                        if (!string.Equals(
+                                observedConfigFingerprint,
+                                fingerprint,
+                                StringComparison.Ordinal))
+                        {
+                            observedConfigFingerprint = fingerprint;
+                            configurationStableSince = DateTimeOffset.UtcNow;
+                        }
+                        else if (configurationStableSince is not null &&
+                                 DateTimeOffset.UtcNow - configurationStableSince >= TimeSpan.FromSeconds(30) &&
+                                 !string.Equals(savedConfigFingerprint, fingerprint, StringComparison.Ordinal))
+                        {
+                            try
+                            {
+                                _recovery.SaveLastKnownGood();
+                                savedConfigFingerprint = fingerprint;
+                                _server.RecordClientLog("Saved a last-known-good Harness configuration snapshot.");
+                            }
+                            catch (Exception exception) when (
+                                exception is IOException or UnauthorizedAccessException or
+                                System.Security.SecurityException)
+                            {
+                                _server.RecordClientLog(
+                                    $"Could not save the recovery snapshot: {exception.Message}");
+                            }
+                        }
+                    }
+
                     continue;
                 }
+
+                configurationStableSince = null;
+                serviceHealthySince = null;
 
                 if (++consecutiveFailures < 2)
                 {
@@ -291,7 +364,8 @@ public partial class MainWindow : Window
         if (_automaticRecoveryAttempts >= 1)
         {
             ShowError(new InvalidOperationException(
-                "DeepSeek Harness 服务连接已中断。自动恢复未成功，请查看日志后重试。"));
+                "DeepSeek Harness 连续两次启动失败，已停止自动重启。可以使用安全模式，或恢复上次可用配置。"));
+            ErrorTitle.Text = "检测到连续启动失败";
             return;
         }
 
@@ -301,7 +375,9 @@ public partial class MainWindow : Window
         {
             ShowStartup("服务连接中断", "正在尝试自动恢复...");
             SetStatus("正在恢复", "#D99100");
-            await StartAndConnectAsync(restartOwnedServer: _server.OwnsServerProcess);
+            await StartAndConnectAsync(
+                restartOwnedServer: _server.OwnsServerProcess,
+                safeMode: _safeMode);
         }
         finally
         {
@@ -344,7 +420,7 @@ public partial class MainWindow : Window
     private async void RestartButton_Click(object sender, RoutedEventArgs e)
     {
         _automaticRecoveryAttempts = 0;
-        await StartAndConnectAsync(restartOwnedServer: true);
+        await StartAndConnectAsync(restartOwnedServer: true, safeMode: false);
     }
 
     private void OpenBrowserButton_Click(object sender, RoutedEventArgs e)
@@ -361,7 +437,7 @@ public partial class MainWindow : Window
         }
 
         _automaticRecoveryAttempts = 0;
-        await StartAndConnectAsync(restartOwnedServer: false);
+        await StartAndConnectAsync(restartOwnedServer: false, safeMode: false);
     }
 
     private void ToggleLogsButton_Click(object sender, RoutedEventArgs e)
@@ -371,6 +447,55 @@ public partial class MainWindow : Window
             ? Visibility.Collapsed
             : Visibility.Visible;
         LogsBox.ScrollToEnd();
+    }
+
+    private async void SafeModeButton_Click(object sender, RoutedEventArgs e)
+    {
+        _automaticRecoveryAttempts = 0;
+        await StartAndConnectAsync(restartOwnedServer: true, safeMode: true);
+    }
+
+    private async void RestoreConfigButton_Click(object sender, RoutedEventArgs e)
+    {
+        var confirmation = MessageBox.Show(
+            this,
+            "将恢复最近一次稳定运行时保存的插件配置。当前配置会先备份，会话、API 凭据和工作目录不会被修改。",
+            "恢复上次可用配置",
+            MessageBoxButton.OKCancel,
+            MessageBoxImage.Warning);
+        if (confirmation != MessageBoxResult.OK)
+        {
+            return;
+        }
+
+        try
+        {
+            var backupDirectory = _recovery.RestoreLastKnownGood();
+            _server.RecordClientLog($"Restored last-known-good configuration. Previous files: {backupDirectory}");
+            _automaticRecoveryAttempts = 0;
+            await StartAndConnectAsync(restartOwnedServer: true, safeMode: false);
+        }
+        catch (Exception exception)
+        {
+            ShowError(exception);
+        }
+    }
+
+    private void OpenProfileButton_Click(object sender, RoutedEventArgs e)
+    {
+        Directory.CreateDirectory(_recovery.ProfileDirectory);
+        OpenDirectory(_recovery.ProfileDirectory);
+    }
+
+    private void OpenLogFolderButton_Click(object sender, RoutedEventArgs e)
+    {
+        var logDirectory = _server.LogFilePath is null
+            ? null
+            : Path.GetDirectoryName(_server.LogFilePath);
+        if (logDirectory is not null)
+        {
+            OpenDirectory(logDirectory);
+        }
     }
 
     private async void ChooseWorkspaceButton_Click(object sender, RoutedEventArgs e)
@@ -404,7 +529,7 @@ public partial class MainWindow : Window
         }
 
         _automaticRecoveryAttempts = 0;
-        await StartAndConnectAsync(restartOwnedServer: true);
+        await StartAndConnectAsync(restartOwnedServer: true, safeMode: false);
     }
 
     private static void OpenExternal(string uri)
@@ -416,6 +541,18 @@ public partial class MainWindow : Window
         catch
         {
             // The embedded client remains usable when Windows has no URL handler.
+        }
+    }
+
+    private static void OpenDirectory(string path)
+    {
+        try
+        {
+            Process.Start(new ProcessStartInfo("explorer.exe", path) { UseShellExecute = true });
+        }
+        catch
+        {
+            // Recovery remains usable when Explorer cannot be started.
         }
     }
 

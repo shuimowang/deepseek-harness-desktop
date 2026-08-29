@@ -155,6 +155,38 @@
                                 Content="查看日志"
                                 Click="ToggleLogsButton_Click" />
                     </StackPanel>
+                    <WrapPanel x:Name="RecoveryActionsPanel"
+                               Margin="0,8,0,0"
+                               MaxWidth="560"
+                               HorizontalAlignment="Center"
+                               Visibility="Collapsed">
+                        <Button x:Name="SafeModeCommandButton"
+                                Style="{StaticResource CommandButton}"
+                                Background="#E8EBF0"
+                                Foreground="{StaticResource TextBrush}"
+                                Content="安全模式"
+                                ToolTip="使用隔离配置，仅加载官方基础组件"
+                                Click="SafeModeButton_Click" />
+                        <Button x:Name="RestoreConfigCommandButton"
+                                Style="{StaticResource CommandButton}"
+                                Background="#E8EBF0"
+                                Foreground="{StaticResource TextBrush}"
+                                Content="恢复上次配置"
+                                ToolTip="恢复稳定运行时保存的插件配置"
+                                Click="RestoreConfigButton_Click" />
+                        <Button x:Name="OpenProfileCommandButton"
+                                Style="{StaticResource CommandButton}"
+                                Background="#E8EBF0"
+                                Foreground="{StaticResource TextBrush}"
+                                Content="插件目录"
+                                Click="OpenProfileButton_Click" />
+                        <Button x:Name="OpenLogFolderCommandButton"
+                                Style="{StaticResource CommandButton}"
+                                Background="#E8EBF0"
+                                Foreground="{StaticResource TextBrush}"
+                                Content="日志目录"
+                                Click="OpenLogFolderButton_Click" />
+                    </WrapPanel>
                 </StackPanel>
                 <TextBox x:Name="LogsBox"
                          Grid.Row="1"

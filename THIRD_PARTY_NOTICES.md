@@ -53,8 +53,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 The release build copies the complete WebView2 `NOTICE.txt` into the `licenses` directory.
 
-## Node.js and npm dependencies
+## Node.js and package dependencies
 
 The full portable package bundles an unmodified official Node.js Windows binary distribution. Its `LICENSE` file
-and dependency notices remain in `runtime/node`. DeepSeek Harness npm packages retain their package metadata and
-license files under `runtime/dsh/node_modules`.
+and dependency notices remain in `runtime/node`. The online package uses Node.js Corepack to obtain the pinned pnpm
+version. DeepSeek Harness npm packages retain their package metadata and license files under
+`runtime/dsh/node_modules`.

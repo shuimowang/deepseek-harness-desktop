@@ -12,9 +12,13 @@ namespace DshDesktop;
 
 internal sealed class DshServerManager : IDisposable
 {
-    public const string HarnessVersion = "0.1.1-rc.2";
+    public const string HarnessVersion = "0.1.2-alpha.1";
 
     private const int MaxLogCharacters = 512 * 1024;
+
+    private static readonly string ApplicationBaseDirectory =
+        Path.GetDirectoryName(typeof(DshServerManager).Assembly.Location)
+        ?? AppContext.BaseDirectory;
 
     private enum ProbeResult
     {
@@ -26,21 +30,31 @@ internal sealed class DshServerManager : IDisposable
     private readonly HttpClient _httpClient = new() { Timeout = TimeSpan.FromSeconds(1.5) };
     private readonly StringBuilder _logs = new();
     private readonly object _logLock = new();
+    private readonly Uri _preferredAppUri;
+    private readonly StreamWriter? _persistentLog;
     private Process? _process;
     private IntPtr _jobHandle;
+    private string? _activeDshHomeOverride;
 
     public DshServerManager(Uri preferredAppUri)
     {
+        _preferredAppUri = preferredAppUri;
         AppUri = preferredAppUri;
+        (LogFilePath, _persistentLog) = CreatePersistentLog();
+        AppendLog("DeepSeek Harness Desktop started.");
     }
 
     public Uri AppUri { get; private set; }
 
     public event EventHandler<string>? ProgressChanged;
 
+    public string? LogFilePath { get; }
+
     public bool OwnsServerProcess => _process is not null || _jobHandle != IntPtr.Zero;
 
     public bool StartedByClient => OwnsServerProcess;
+
+    public bool IsSafeMode => _activeDshHomeOverride is not null;
 
     public string Logs
     {
@@ -53,8 +67,23 @@ internal sealed class DshServerManager : IDisposable
         }
     }
 
-    public async Task EnsureRunningAsync(string workingDirectory, CancellationToken cancellationToken)
+    public async Task EnsureRunningAsync(
+        string workingDirectory,
+        CancellationToken cancellationToken,
+        string? dshHomeOverride = null)
     {
+        if (!PathsEqualOrBothNull(_activeDshHomeOverride, dshHomeOverride))
+        {
+            if (OwnsServerProcess)
+            {
+                StopOwnedServer();
+            }
+
+            AppUri = dshHomeOverride is null
+                ? _preferredAppUri
+                : new Uri($"http://127.0.0.1:{FindAvailableLoopbackPort()}/");
+        }
+
         var probe = await ProbeAsync(cancellationToken);
         if (probe == ProbeResult.DeepSeekHarness)
         {
@@ -70,13 +99,18 @@ internal sealed class DshServerManager : IDisposable
         }
 
         DisposeExitedProcess();
-        var startInfo = await BuildStartInfoAsync(workingDirectory, AppUri.Port, cancellationToken);
-        StartServer(workingDirectory, startInfo);
+        var startInfo = await BuildStartInfoAsync(
+            workingDirectory,
+            AppUri.Port,
+            dshHomeOverride,
+            cancellationToken);
+        StartServer(workingDirectory, startInfo, dshHomeOverride);
         try
         {
             var deadline = Stopwatch.StartNew();
 
-            while (deadline.Elapsed < TimeSpan.FromSeconds(120))
+            var nextProgressReport = TimeSpan.FromSeconds(10);
+            while (deadline.Elapsed < TimeSpan.FromMinutes(3))
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
@@ -93,16 +127,18 @@ internal sealed class DshServerManager : IDisposable
                     return;
                 }
 
-                if (probe == ProbeResult.OtherHttpServer)
+                if (deadline.Elapsed >= nextProgressReport)
                 {
-                    throw new InvalidOperationException(
-                        $"端口 {AppUri.Port} 返回了非 DeepSeek Harness 页面。请查看启动日志。");
+                    ReportProgress(
+                        $"正在初始化 Harness 配置，首次启动通常需要 1-3 分钟，" +
+                        $"已用时 {FormatElapsed(deadline.Elapsed)}...");
+                    nextProgressReport += TimeSpan.FromSeconds(10);
                 }
 
                 await Task.Delay(400, cancellationToken);
             }
 
-            throw new TimeoutException("等待 DeepSeek Harness 首次安装或启动超时（120 秒）。请查看启动日志。");
+            throw new TimeoutException("等待 DeepSeek Harness 初始化超时（3 分钟）。请查看启动日志。");
         }
         catch
         {
@@ -111,20 +147,31 @@ internal sealed class DshServerManager : IDisposable
         }
     }
 
-    public async Task RestartAsync(string workingDirectory, CancellationToken cancellationToken)
+    public async Task RestartAsync(
+        string workingDirectory,
+        CancellationToken cancellationToken,
+        string? dshHomeOverride = null)
     {
         if (OwnsServerProcess)
         {
             StopOwnedServer();
         }
 
-        await EnsureRunningAsync(workingDirectory, cancellationToken);
+        AppUri = dshHomeOverride is null
+            ? _preferredAppUri
+            : new Uri($"http://127.0.0.1:{FindAvailableLoopbackPort()}/");
+        await EnsureRunningAsync(workingDirectory, cancellationToken, dshHomeOverride);
     }
 
     public async Task<bool> IsHarnessReadyAsync(CancellationToken cancellationToken) =>
         await ProbeAsync(cancellationToken) == ProbeResult.DeepSeekHarness;
 
-    private void StartServer(string workingDirectory, ProcessStartInfo startInfo)
+    public void RecordClientLog(string message) => AppendLog(message);
+
+    private void StartServer(
+        string workingDirectory,
+        ProcessStartInfo startInfo,
+        string? dshHomeOverride)
     {
         if (!Directory.Exists(workingDirectory))
         {
@@ -139,7 +186,7 @@ internal sealed class DshServerManager : IDisposable
 
         var process = new Process { StartInfo = startInfo, EnableRaisingEvents = true };
         var jobHandle = CreateKillOnCloseJob();
-        process.OutputDataReceived += (_, args) => AppendLog(args.Data);
+        process.OutputDataReceived += (_, args) => HandleServerOutput(args.Data);
         process.ErrorDataReceived += (_, args) => AppendLog(args.Data);
         process.Exited += (_, _) =>
         {
@@ -166,6 +213,7 @@ internal sealed class DshServerManager : IDisposable
 
             _process = process;
             _jobHandle = jobHandle;
+            _activeDshHomeOverride = dshHomeOverride;
             jobHandle = IntPtr.Zero;
             process.BeginOutputReadLine();
             process.BeginErrorReadLine();
@@ -198,11 +246,12 @@ internal sealed class DshServerManager : IDisposable
     private async Task<ProcessStartInfo> BuildStartInfoAsync(
         string workingDirectory,
         int port,
+        string? dshHomeOverride,
         CancellationToken cancellationToken)
     {
-        var bundledNode = Path.Combine(AppContext.BaseDirectory, "runtime", "node", "node.exe");
+        var bundledNode = Path.Combine(ApplicationBaseDirectory, "runtime", "node", "node.exe");
         var bundledDsh = Path.Combine(
-            AppContext.BaseDirectory,
+            ApplicationBaseDirectory,
             "runtime",
             "dsh",
             "node_modules",
@@ -214,24 +263,26 @@ internal sealed class DshServerManager : IDisposable
         if (File.Exists(bundledNode) && File.Exists(bundledDsh))
         {
             ReportProgress($"正在使用内置 DeepSeek Harness {HarnessVersion}...");
-            PrepareProfileFallbackLinks(GetDshPackageDirectory(bundledDsh));
+            PrepareProfileFallbackLinks(GetDshPackageDirectory(bundledDsh), dshHomeOverride);
             var bundled = CommonStartInfo(bundledNode, workingDirectory);
             bundled.ArgumentList.Add(bundledDsh);
             AddWebArguments(bundled.ArgumentList, port);
+            ApplyDshHomeOverride(bundled, dshHomeOverride);
             return bundled;
         }
 
         var onlineSpec = OnlineRuntimeSpec.TryLoad(
-            Path.Combine(AppContext.BaseDirectory, "runtime-mode.json"),
+            Path.Combine(ApplicationBaseDirectory, "runtime-mode.json"),
             HarnessVersion);
         if (onlineSpec is not null)
         {
             var provisioner = new OnlineRuntimeProvisioner(ReportProgress, AppendLog);
             var runtime = await provisioner.EnsureAsync(onlineSpec, cancellationToken);
-            PrepareProfileFallbackLinks(GetDshPackageDirectory(runtime.DshEntryPoint));
+            PrepareProfileFallbackLinks(GetDshPackageDirectory(runtime.DshEntryPoint), dshHomeOverride);
             var online = CommonStartInfo(runtime.NodeExecutable, workingDirectory);
             online.ArgumentList.Add(runtime.DshEntryPoint);
             AddWebArguments(online.ArgumentList, port);
+            ApplyDshHomeOverride(online, dshHomeOverride);
             return online;
         }
 
@@ -241,9 +292,9 @@ internal sealed class DshServerManager : IDisposable
             ?? throw new FileNotFoundException(
                 "找不到 npx。请安装 Node.js 22.19 或 24 及更高版本：https://nodejs.org/");
 
-        PrepareProfileFallbackLinks(expectedDshPackageDirectory: null);
+        PrepareProfileFallbackLinks(expectedDshPackageDirectory: null, dshHomeOverride);
 
-        return CmdStartInfo(
+        var system = CmdStartInfo(
             npxCmd,
             workingDirectory,
             "--yes",
@@ -254,11 +305,15 @@ internal sealed class DshServerManager : IDisposable
             "--port",
             port.ToString(),
             "--no-open");
+        ApplyDshHomeOverride(system, dshHomeOverride);
+        return system;
     }
 
-    private void PrepareProfileFallbackLinks(string? expectedDshPackageDirectory)
+    private void PrepareProfileFallbackLinks(
+        string? expectedDshPackageDirectory,
+        string? dshHomeOverride)
     {
-        var dshHome = Environment.GetEnvironmentVariable("DSH_HOME");
+        var dshHome = dshHomeOverride ?? Environment.GetEnvironmentVariable("DSH_HOME");
         if (string.IsNullOrWhiteSpace(dshHome))
         {
             dshHome = Path.Combine(
@@ -270,6 +325,11 @@ internal sealed class DshServerManager : IDisposable
             Path.GetFullPath(Environment.ExpandEnvironmentVariables(dshHome)),
             "profiles",
             "node_modules");
+        if (!Directory.Exists(fallbackDirectory))
+        {
+            return;
+        }
+
         var managedDshLink = Path.Combine(fallbackDirectory, "@deepseek-ai", "dsh");
         var previousInstallRoot = GetVerifiedDshInstallRoot(managedDshLink);
         if (previousInstallRoot is null)
@@ -416,6 +476,14 @@ internal sealed class DshServerManager : IDisposable
         arguments.Add("--no-open");
     }
 
+    private static void ApplyDshHomeOverride(ProcessStartInfo startInfo, string? dshHomeOverride)
+    {
+        if (dshHomeOverride is not null)
+        {
+            startInfo.Environment["DSH_HOME"] = dshHomeOverride;
+        }
+    }
+
     private static void ValidateSystemNode()
     {
         var nodePath = FindOnPath("node.exe")
@@ -519,6 +587,11 @@ internal sealed class DshServerManager : IDisposable
         }
     }
 
+    private static string FormatElapsed(TimeSpan elapsed) =>
+        elapsed.TotalMinutes >= 1
+            ? $"{(int)elapsed.TotalMinutes} 分 {elapsed.Seconds} 秒"
+            : $"{Math.Max(1, elapsed.Seconds)} 秒";
+
     private async Task<ProbeResult> ProbeAsync(CancellationToken cancellationToken)
     {
         try
@@ -531,7 +604,8 @@ internal sealed class DshServerManager : IDisposable
 
             var html = await response.Content.ReadAsStringAsync(cancellationToken);
             return (html.Contains("window.__DSH_BOOT__", StringComparison.Ordinal) ||
-                    html.Contains("globalThis[\"__DSH_BOOT__\"]", StringComparison.Ordinal))
+                    html.Contains("globalThis[\"__DSH_BOOT__\"]", StringComparison.Ordinal) ||
+                    html.Contains("<title>DeepSeek Harness</title>", StringComparison.OrdinalIgnoreCase))
                 ? ProbeResult.DeepSeekHarness
                 : ProbeResult.OtherHttpServer;
         }
@@ -545,6 +619,29 @@ internal sealed class DshServerManager : IDisposable
         }
     }
 
+    private void HandleServerOutput(string? line)
+    {
+        if (string.IsNullOrWhiteSpace(line))
+        {
+            return;
+        }
+
+        const string endpointPrefix = "dsh web:";
+        if (line.StartsWith(endpointPrefix, StringComparison.OrdinalIgnoreCase) &&
+            Uri.TryCreate(line[endpointPrefix.Length..].Trim(), UriKind.Absolute, out var endpoint) &&
+            endpoint.Scheme == Uri.UriSchemeHttp &&
+            IPAddress.TryParse(endpoint.Host, out var address) &&
+            IPAddress.IsLoopback(address) &&
+            endpoint.Port == AppUri.Port)
+        {
+            AppUri = endpoint;
+            AppendLog($"dsh web: {endpoint.GetLeftPart(UriPartial.Path)}?token=<redacted>");
+            return;
+        }
+
+        AppendLog(line);
+    }
+
     private void AppendLog(string? line)
     {
         if (string.IsNullOrWhiteSpace(line))
@@ -554,7 +651,17 @@ internal sealed class DshServerManager : IDisposable
 
         lock (_logLock)
         {
-            _logs.Append('[').Append(DateTime.Now.ToString("HH:mm:ss")).Append("] ").AppendLine(line);
+            var timestamp = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff");
+            var formatted = $"[{timestamp}] {line}";
+            _logs.AppendLine(formatted);
+            try
+            {
+                _persistentLog?.WriteLine(formatted);
+            }
+            catch (Exception exception) when (exception is IOException or ObjectDisposedException)
+            {
+                // The in-memory log remains available if persistent logging fails mid-run.
+            }
             if (_logs.Length > MaxLogCharacters)
             {
                 _logs.Remove(0, _logs.Length - MaxLogCharacters * 3 / 4);
@@ -578,12 +685,14 @@ internal sealed class DshServerManager : IDisposable
         CloseOwnedJob();
         _process.Dispose();
         _process = null;
+        _activeDshHomeOverride = null;
     }
 
     private void StopOwnedServer()
     {
         var process = _process;
         _process = null;
+        _activeDshHomeOverride = null;
         if (process is null)
         {
             return;
@@ -715,5 +824,55 @@ internal sealed class DshServerManager : IDisposable
     {
         StopOwnedServer();
         _httpClient.Dispose();
+        lock (_logLock)
+        {
+            _persistentLog?.Dispose();
+        }
+    }
+
+    private static bool PathsEqualOrBothNull(string? left, string? right)
+    {
+        if (left is null || right is null)
+        {
+            return left is null && right is null;
+        }
+
+        return PathsEqual(left, right);
+    }
+
+    private static (string? Path, StreamWriter? Writer) CreatePersistentLog()
+    {
+        var candidates = new[]
+        {
+            Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "DeepSeekHarness",
+                "logs"),
+            Path.Combine(Path.GetTempPath(), "DeepSeekHarness", "logs")
+        };
+
+        foreach (var directory in candidates.Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            try
+            {
+                Directory.CreateDirectory(directory);
+                var path = Path.Combine(
+                    directory,
+                    $"desktop-{DateTime.Now:yyyyMMdd-HHmmss}-{Environment.ProcessId}.log");
+                var stream = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.ReadWrite);
+                return (
+                    path,
+                    new StreamWriter(stream, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false))
+                    {
+                        AutoFlush = true
+                    });
+            }
+            catch (Exception exception) when (
+                exception is IOException or UnauthorizedAccessException or System.Security.SecurityException)
+            {
+            }
+        }
+
+        return (null, null);
     }
 }

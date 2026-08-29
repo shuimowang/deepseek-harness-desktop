@@ -25,10 +25,12 @@
 
 - 原生 WPF 窗口和 Edge WebView2，不额外携带 Chromium。
 - 单实例运行；重复打开会唤起现有窗口。
-- 固定使用经过验证的 `@deepseek-ai/dsh@0.1.1-rc.2`。
+- 固定使用从官方标签 `dsh-v0.1.2-alpha.1` 构建并验证的 DeepSeek Harness。
 - 完整便携包内置 Node.js 24.14.1、DSH 和 .NET 10 Desktop Runtime。
 - 优先复用 `127.0.0.1:3080` 上已有的 Harness；端口被其他程序占用时自动选择空闲端口。
-- 连续探测服务健康状态，异常退出后自动恢复一次。
+- 连续探测服务健康状态，异常退出后自动恢复一次；再次失败会停止自动重启。
+- 启动日志持久保存；正常配置稳定运行 30 秒后保存一份小型恢复快照。
+- 提供隔离安全模式和“恢复上次配置”，不修改 Harness 会话、API 凭据或工作目录。
 - 仅关闭客户端自己启动的服务，不终止外部 Harness 进程。
 - 跨域链接交给系统浏览器，WebView2 只保留本地 Harness 页面。
 - 可选择工作目录、重新连接、刷新、查看启动日志或在浏览器中打开。
@@ -38,7 +40,7 @@
 
 ### 在线轻量版（推荐分享）
 
-`DeepSeekHarness-1.2.1-win-x64-online.zip` 小于 100 MB，适合 GitHub Release
+`DeepSeekHarness-1.4.0-win-x64-online.zip` 小于 100 MB，适合 GitHub Release
 和蓝奏云。
 
 #### 运行环境
@@ -50,25 +52,25 @@
 - 内嵌界面需要 Microsoft Edge WebView2 Runtime；Windows 10/11 通常已经包含。缺失时客户端仍可运行，并会提示用户点击后在系统默认浏览器中打开。
 - 使用模型时，仍需按照 DeepSeek Harness 的要求配置可用的模型服务和 API 凭据；客户端不会附送模型额度或密钥。
 
-在线轻量版**不需要预装** .NET Runtime、Node.js、npm、DeepSeek Harness 或 Git。客户端为自包含发布，缺少的 Node.js 和 DeepSeek Harness 会在首次启动时自动准备。
+在线轻量版**不需要预装** .NET Runtime、Node.js、npm、pnpm、DeepSeek Harness 或 Git。客户端为自包含发布，缺少的 Node.js 和 DeepSeek Harness 会在首次启动时自动准备。
 
 #### 首次启动
 
 客户端会自动：
 
 1. 从 nodejs.org 下载并校验 Node.js 24.14.1；
-2. 按随包提供的生产依赖锁文件，从 npm 安装固定版 `@deepseek-ai/dsh@0.1.1-rc.2`；
+2. 通过 Node.js 自带的 Corepack 启动固定的 pnpm 11.7.0，从压缩包内的官方标签 tarball 安装 `@deepseek-ai/dsh@0.1.2-alpha.1`，并按生产锁文件从 npm registry 并行下载外部依赖；
 3. 将运行时保存到 `%LOCALAPPDATA%\DeepSeekHarness\Runtime`，后续启动和客户端更新直接复用。
 
-`v1.2.1` 不再由每台电脑重新求解完整 npm 依赖树。首次安装通常需要 1 至 5 分钟，主要取决于网络和磁盘速度；窗口会持续显示当前阶段与已用时间。安装被正常关闭或文件被临时占用时，已下载内容会保留，下次启动自动恢复，不会重新从头等待。客户端升级后，只要内置的运行时版本没有变化，就不需要重新下载。
+`v1.4.0` 不会从 npm 查找尚未发布的 Harness Alpha 包，也不会由每台电脑重新求解完整依赖树。首次安装和 Profile 初始化通常需要 **1-3 分钟**，具体取决于网络、磁盘和杀毒软件；窗口会持续显示当前阶段与已用时间，请不要在仍有进度提示时重复启动。安装被正常关闭或文件被临时占用时，已下载的 pnpm 缓存会保留，下次启动继续利用，不会全部重新下载。客户端升级后，只要内置的运行时版本没有变化，就不需要重新下载。
 
 安装诊断日志位于 `%LOCALAPPDATA%\DeepSeekHarness\Runtime\logs\install.log`。安装失败时，界面会同时显示保留目录和日志位置。
 
-不要只按约 63 MB 的 ZIP 大小预留空间。当前版本解压后约占 142 MiB，首次准备的 Node.js、DeepSeek Harness 和 npm 缓存合计约占 490 MiB，WebView2 用户数据还会随使用增长。建议磁盘至少预留 **1 GB** 可用空间。
+不要只按 ZIP 大小预留空间。首次准备的 Node.js、DeepSeek Harness 和 pnpm 内容寻址缓存会明显大于下载包，WebView2 用户数据还会随使用增长。建议磁盘至少预留 **1 GB** 可用空间。
 
 ### 离线完整版
 
-从发布包中获取 `DeepSeekHarness-1.2.1-win-x64.zip`：
+从发布包中获取 `DeepSeekHarness-1.4.0-win-x64.zip`：
 
 1. 将 ZIP 完整解压到一个普通文件夹，不要直接在压缩包里运行。
 2. 双击 `DeepSeekHarness.exe`。
@@ -92,17 +94,29 @@ powershell -ExecutionPolicy Bypass -File .\Install-DesktopShortcut.ps1 -Remove
 `.sha256` 文件，用户可用以下命令核对下载完整性：
 
 ```powershell
-Get-FileHash .\DeepSeekHarness-1.2.1-win-x64.zip -Algorithm SHA256
+Get-FileHash .\DeepSeekHarness-1.4.0-win-x64.zip -Algorithm SHA256
 ```
 
 ## 数据位置
 
 - 客户端设置：`%LOCALAPPDATA%\DeepSeekHarness\desktop-settings.json`
+- 客户端启动日志：`%LOCALAPPDATA%\DeepSeekHarness\logs`
+- 配置恢复快照：`%LOCALAPPDATA%\DeepSeekHarness\Recovery`
 - WebView2 数据：`%LOCALAPPDATA%\DeepSeekHarness\WebView2`
 - 默认工作目录：`文档\DeepSeek Harness Workspace`
 - Harness 自身的会话、模型和插件数据仍遵循官方 DSH 的数据目录规则。
 
 客户端不会在安装目录保存用户会话。升级时可以直接替换程序文件夹。
+
+## 故障恢复
+
+如果插件或用户配置导致 Harness 连续启动失败，客户端会停止自动重启，并在错误页提供以下操作：
+
+- **安全模式**：使用独立的临时 `DSH_HOME`，只加载官方基础 Bundle 和 Web Bundle。安全模式用于确认 Harness 本体能够启动，不是另一套日常数据环境。
+- **恢复上次配置**：恢复最近一次稳定运行 30 秒后保存的 Profile 清单、Patch 和锁文件。恢复前会把当前文件保存在 `Recovery\before-restore` 中。
+- **插件目录**和**日志目录**：直接打开对应位置，便于手动排查或提交故障信息。
+
+恢复功能不会编辑或删除 `.dsh\sessions`、Harness 凭据文件和用户工作目录。首次成功稳定运行前没有“上次配置”快照，此时仍可使用安全模式并打开插件目录手动处理。
 
 从包含 DSH `0.1.0-rc.7` 的旧版客户端升级前，建议先备份 Harness 数据目录和默认工作目录。DSH `0.1.0-rc.8` 起调整了 SQLite 存储格式，不建议让新旧版本交替打开同一份数据。客户端会自动更新 DSH 管理的旧版依赖链接，不会删除链接目标或用户会话数据。
 
@@ -120,7 +134,13 @@ dotnet restore .\DshDesktop.csproj
 dotnet run --project .\DshDesktop.csproj
 ```
 
-开发模式没有内置运行时，会通过系统 `npx` 启动固定版本的 DSH。
+由于 `0.1.2-alpha.1` 尚未发布到 npm，直接使用系统 `npx` 的开发回退模式无法获取该版本。可分享构建使用仓库内固定的官方标签 tarball 和锁文件，不受 npm 发布进度影响。
+
+构建后可运行恢复逻辑回归测试：
+
+```powershell
+pwsh -NoProfile -File .\scripts\Test-Recovery.ps1
+```
 
 ## 构建可分享便携包
 
@@ -140,7 +160,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\Build-Release.ps1
 
 - 自包含发布 Windows x64 WPF 客户端；
 - 从 nodejs.org 下载 Node.js，并按官方 `SHASUMS256.txt` 校验；
-- 使用提交到仓库的生产锁文件安装固定版本的 DeepSeek Harness；
+- 使用提交到仓库的官方标签 tarball 和生产锁文件安装固定版本的 DeepSeek Harness；
 - 写入运行时清单和第三方声明；
 - 在 `artifacts` 目录生成 ZIP 与 SHA-256 文件。
 
@@ -150,6 +170,20 @@ powershell -ExecutionPolicy Bypass -File .\scripts\Build-Release.ps1
 .\scripts\Build-Release.ps1 -SkipRuntimeBundle
 ```
 
+更新固定的 Harness 版本时，先在官方源码的准确标签上按其 `release:verify`、
+`build:official`、`release:pack` 和 `release:verify-packed-install` 流程生成
+`dist/npm`、`dist/npm-vendor`、`dist/npm-landlock`，再导入本仓库：
+
+```powershell
+.\scripts\Import-DshRuntime.ps1 `
+  -SourceRoot D:\path\to\deepseek-harness `
+  -UpstreamTag dsh-v0.1.2-alpha.1 `
+  -UpstreamCommit cd5ef8148158c3a752a658978873241fdf8e2bbc `
+  -HarnessVersion 0.1.2-alpha.1
+```
+
+导入脚本会核对标签和提交、复制官方 tarball，并生成生产锁文件。客户端不会在运行时跟随上游分支自动升级；每个发布版始终对应可追溯、已验证的固定 Harness 版本。
+
 ## 项目边界
 
 客户端不修改或复刻 Harness UI。模型、会话、工具、插件和 Agent 能力均由官方
@@ -157,3 +191,5 @@ powershell -ExecutionPolicy Bypass -File .\scripts\Build-Release.ps1
 
 本项目源码使用 [MIT License](LICENSE)。第三方组件和图标来源见
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+
+当前 Harness 来源为官方标签 [`dsh-v0.1.2-alpha.1`](https://github.com/deepseek-ai/deepseek-harness/releases/tag/dsh-v0.1.2-alpha.1)，提交 `cd5ef8148158c3a752a658978873241fdf8e2bbc`。该版本仍是 Developer Preview / Alpha，可能包含破坏性兼容变更；本项目不修改 Harness UI 或功能实现。

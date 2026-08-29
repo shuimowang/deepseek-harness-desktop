@@ -7,7 +7,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>DeepSeekHarness</AssemblyName>
     <RootNamespace>DshDesktop</RootNamespace>
-    <Version>1.2.1</Version>
+    <Version>1.4.0</Version>
     <Authors>DeepSeek Harness Desktop contributors</Authors>
     <Product>DeepSeek Harness Community Desktop</Product>
     <Description>Unofficial community Windows desktop client for DeepSeek Harness.</Description>
@@ -15,6 +15,7 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>dsh.ico</ApplicationIcon>
     <DefaultItemExcludes>$(DefaultItemExcludes);artifacts\**</DefaultItemExcludes>
+    <IncludeOnlineRuntimePackage Condition="'$(IncludeOnlineRuntimePackage)' == ''">false</IncludeOnlineRuntimePackage>
     <DebugType Condition="'$(Configuration)' == 'Release'">none</DebugType>
     <DebugSymbols Condition="'$(Configuration)' == 'Release'">false</DebugSymbols>
   </PropertyGroup>
@@ -26,10 +27,22 @@
   <ItemGroup>
     <None Remove="dsh.ico" />
     <Resource Include="dsh.ico" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(IncludeOnlineRuntimePackage)' == 'true'">
     <Content Include="runtime\dsh-package\package.json"
              CopyToOutputDirectory="PreserveNewest"
              CopyToPublishDirectory="PreserveNewest" />
-    <Content Include="runtime\dsh-package\package-lock.json"
+    <Content Include="runtime\dsh-package\pnpm-lock.yaml"
+             CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="runtime\dsh-package\pnpm-workspace.yaml"
+             CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="runtime\dsh-package\SOURCE.json"
+             CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="runtime\dsh-package\packages\*.tgz"
              CopyToOutputDirectory="PreserveNewest"
              CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>

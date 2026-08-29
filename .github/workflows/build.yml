@@ -16,11 +16,19 @@ jobs:
       - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: 10.0.x
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24.14.1
+      - name: Enable pinned pnpm
+        run: corepack enable pnpm
       - name: Restore
         run: dotnet restore .\DshDesktop.csproj
       - name: Build
         run: dotnet build .\DshDesktop.csproj -c Release --no-restore
+      - name: Test recovery workflow
+        run: pwsh -NoProfile -File .\scripts\Test-Recovery.ps1
       - name: Validate locked DSH runtime
-        run: npm ci --prefix .\runtime\dsh-package --omit=dev --ignore-scripts --no-audit --no-fund --dry-run
+        working-directory: .\runtime\dsh-package
+        run: pnpm install --frozen-lockfile --prod --ignore-scripts
       - name: Audit NuGet packages
         run: dotnet list .\DshDesktop.csproj package --vulnerable --include-transitive

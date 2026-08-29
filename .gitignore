@@ -3,10 +3,11 @@ obj/
 .vs/
 .dotnet/
 .nuget/
-packages/
+/packages/
 dist/
 client-window*.png
 artifacts/
+.build-cache/
 output/
 TestResults/
 *.user
