@@ -7,7 +7,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>DeepSeekHarness</AssemblyName>
     <RootNamespace>DshDesktop</RootNamespace>
-    <Version>1.4.0</Version>
+    <Version>1.5.0</Version>
     <Authors>DeepSeek Harness Desktop contributors</Authors>
     <Product>DeepSeek Harness Community Desktop</Product>
     <Description>Unofficial community Windows desktop client for DeepSeek Harness.</Description>

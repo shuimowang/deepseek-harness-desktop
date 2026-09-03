@@ -1,8 +1,8 @@
 [CmdletBinding()]
 param(
-    [string]$Version = '1.4.0',
+    [string]$Version = '1.5.0',
     [string]$NodeVersion = '24.14.1',
-    [string]$HarnessVersion = '0.1.2-alpha.1',
+    [string]$HarnessVersion = '0.1.2-rc.1',
     [switch]$OnlineLite,
     [switch]$SkipRuntimeBundle
 )
@@ -73,7 +73,30 @@ function Assert-ProjectChildPath([string]$Path) {
 
 function Get-NodeExpectedHash([string]$RequestedNodeVersion, [string]$ArchiveName) {
     $nodeBaseUrl = "https://nodejs.org/dist/v$RequestedNodeVersion"
-    $checksumText = (Invoke-WebRequest -UseBasicParsing -Uri "$nodeBaseUrl/SHASUMS256.txt").Content
+    $checksumUri = "$nodeBaseUrl/SHASUMS256.txt"
+    $checksumText = $null
+    for ($attempt = 1; $attempt -le 3; $attempt++) {
+        try {
+            $checksumText = (Invoke-WebRequest -UseBasicParsing -Uri $checksumUri).Content
+            break
+        }
+        catch {
+            Write-Warning "Node.js checksum request failed (attempt $attempt of 3): $($_.Exception.Message)"
+            if ($attempt -lt 3) {
+                Start-Sleep -Seconds $attempt
+            }
+        }
+    }
+    if (-not $checksumText) {
+        $curl = Get-Command curl.exe -ErrorAction SilentlyContinue
+        if (-not $curl) {
+            throw "Unable to download Node.js checksums from $checksumUri"
+        }
+        $checksumText = (& $curl.Source -fsSL --retry 3 --retry-all-errors $checksumUri) -join "`n"
+        if ($LASTEXITCODE -ne 0 -or -not $checksumText) {
+            throw "Unable to download Node.js checksums from $checksumUri"
+        }
+    }
     $checksumLine = $checksumText -split "`n" |
         Where-Object { $_ -match "\s+$([regex]::Escape($ArchiveName))\s*$" } |
         Select-Object -First 1
@@ -188,6 +211,8 @@ elseif (-not $SkipRuntimeBundle) {
             --frozen-lockfile `
             --prod `
             --reporter append-only `
+            --config.node-linker=hoisted `
+            --config.package-import-method=copy `
             --store-dir $pnpmStoreDirectory
         if ($LASTEXITCODE -ne 0) {
             throw "pnpm install failed with exit code $LASTEXITCODE"

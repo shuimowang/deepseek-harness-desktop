@@ -10,5 +10,6 @@ artifacts/
 .build-cache/
 output/
 TestResults/
+runtime/dsh-package/node_modules/
 *.user
 *.suo
