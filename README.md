@@ -25,7 +25,7 @@
 
 - 原生 WPF 窗口和 Edge WebView2，不额外携带 Chromium。
 - 单实例运行；重复打开会唤起现有窗口。
-- 固定使用从官方标签 `dsh-v0.1.2-rc.1` 构建并验证的 DeepSeek Harness。
+- 固定使用从官方标签 `dsh-v0.1.3-alpha.2` 构建并验证的 DeepSeek Harness。
 - 完整便携包内置 Node.js 24.14.1、DSH 和 .NET 10 Desktop Runtime。
 - 优先复用 `127.0.0.1:3080` 上已有的 Harness；端口被其他程序占用时自动选择空闲端口。
 - 连续探测服务健康状态，异常退出后自动恢复一次；再次失败会停止自动重启。
@@ -40,7 +40,7 @@
 
 ### 在线轻量版（推荐分享）
 
-`DeepSeekHarness-1.5.0-win-x64-online.zip` 小于 100 MB，适合 GitHub Release
+`DeepSeekHarness-1.6.0-win-x64-online.zip` 小于 100 MB，适合 GitHub Release
 和蓝奏云。
 
 #### 运行环境
@@ -54,15 +54,17 @@
 
 在线轻量版**不需要预装** .NET Runtime、Node.js、npm、pnpm、DeepSeek Harness 或 Git。客户端为自包含发布，缺少的 Node.js 和 DeepSeek Harness 会在首次启动时自动准备。
 
+新版会话模块使用的 `fs-ext` 已为内置 Node.js 预编译，用户也不需要安装 Python 或 Visual Studio C++ 编译工具。
+
 #### 首次启动
 
 客户端会自动：
 
 1. 从 nodejs.org 下载并校验 Node.js 24.14.1；
-2. 通过 Node.js 自带的 Corepack 启动固定的 pnpm 11.7.0，从压缩包内的官方标签 tarball 安装 `@deepseek-ai/dsh@0.1.2-rc.1`，并按生产锁文件从 npm registry 并行下载外部依赖；
+2. 通过 Node.js 自带的 Corepack 启动固定的 pnpm 11.7.0，从压缩包内的官方标签 tarball 安装 `@deepseek-ai/dsh@0.1.3-alpha.2`，并按生产锁文件从 npm registry 并行下载外部依赖；
 3. 将运行时保存到 `%LOCALAPPDATA%\DeepSeekHarness\Runtime`，后续启动和客户端更新直接复用。
 
-`v1.5.0` 不会从 npm 查找 Harness 包，也不会由每台电脑重新求解完整依赖树。首次安装和 Profile 初始化通常需要数分钟；网络较慢、磁盘性能较低或杀毒软件逐文件扫描时，可能需要十几分钟或更久。窗口会持续显示当前阶段与已用时间，请不要在仍有进度提示时重复启动。安装被正常关闭或文件被临时占用时，已下载的 pnpm 缓存会保留，下次启动继续利用，不会全部重新下载。客户端升级后，只要内置的运行时版本没有变化，就不需要重新下载。
+`v1.6.0` 不会从 npm 查找 Harness 包，也不会由每台电脑重新求解完整依赖树。首次安装和 Profile 初始化通常需要数分钟；网络较慢、磁盘性能较低或杀毒软件逐文件扫描时，可能需要十几分钟或更久。窗口会持续显示当前阶段与已用时间，请不要在仍有进度提示时重复启动。安装被正常关闭或文件被临时占用时，已下载的 pnpm 缓存会保留，下次启动继续利用，不会全部重新下载。客户端升级后，只要内置的运行时版本没有变化，就不需要重新下载。
 
 安装诊断日志位于 `%LOCALAPPDATA%\DeepSeekHarness\Runtime\logs\install.log`。安装失败时，界面会同时显示保留目录和日志位置。
 
@@ -70,7 +72,7 @@
 
 ### 离线完整版
 
-从发布包中获取 `DeepSeekHarness-1.5.0-win-x64.zip`：
+从发布包中获取 `DeepSeekHarness-1.6.0-win-x64.zip`：
 
 1. 将 ZIP 完整解压到一个普通文件夹，不要直接在压缩包里运行。
 2. 双击 `DeepSeekHarness.exe`。
@@ -94,7 +96,7 @@ powershell -ExecutionPolicy Bypass -File .\Install-DesktopShortcut.ps1 -Remove
 `.sha256` 文件，用户可用以下命令核对下载完整性：
 
 ```powershell
-Get-FileHash .\DeepSeekHarness-1.5.0-win-x64.zip -Algorithm SHA256
+Get-FileHash .\DeepSeekHarness-1.6.0-win-x64.zip -Algorithm SHA256
 ```
 
 ## 数据位置
@@ -107,6 +109,8 @@ Get-FileHash .\DeepSeekHarness-1.5.0-win-x64.zip -Algorithm SHA256
 - Harness 自身的会话、模型和插件数据仍遵循官方 DSH 的数据目录规则。
 
 客户端不会在安装目录保存用户会话。升级时可以直接替换程序文件夹。
+
+`v1.6.0` 内置的 Harness `0.1.3-alpha.2` 使用 Session v2 格式，会将旧 v0/v1 日志迁移到新的 generation。升级前请退出旧客户端，并备份 Harness 数据目录（默认 `%USERPROFILE%\.dsh`，设置了 `DSH_HOME` 时以该目录为准）。不要让新旧版本同时使用同一份数据；旧日志被保留不代表降级后能读取新版产生的内容。自定义插件或 persona 配置也可能需要按上游 0.1.3 的接口变更适配。
 
 ## 故障恢复
 
@@ -177,12 +181,14 @@ powershell -ExecutionPolicy Bypass -File .\scripts\Build-Release.ps1
 ```powershell
 .\scripts\Import-DshRuntime.ps1 `
   -SourceRoot D:\path\to\deepseek-harness `
-  -UpstreamTag dsh-v0.1.2-rc.1 `
-  -UpstreamCommit a66e4702047846cdaa10c66c9d3df3951f5ea70d `
-  -HarnessVersion 0.1.2-rc.1
+  -UpstreamTag dsh-v0.1.3-alpha.2 `
+  -UpstreamCommit 82a5fd61a7cf5c293cec4bdff68f455398d685e9 `
+  -HarnessVersion 0.1.3-alpha.2
 ```
 
 导入脚本会核对标签和提交、复制官方 tarball，并生成生产锁文件。客户端不会在运行时跟随上游分支自动升级；每个发布版始终对应可追溯、已验证的固定 Harness 版本。
+
+导入步骤需在 Windows x64、Node.js 24.14.1 下运行，并先完成上游依赖安装及 `fs-ext` 原生编译；仅构建机需要 Python 和 Visual Studio C++ 编译工具。脚本将 `fs-ext` 2.1.1 的原版代码及本地编译的绑定重新打包，关闭安装脚本，并记录 Node ABI 和二进制 SHA-256。更新内置 Node.js 时必须重新生成该包；发布构建会拒绝与预编译目标不同的 Node.js 版本。
 
 ## 项目边界
 
@@ -192,4 +198,4 @@ powershell -ExecutionPolicy Bypass -File .\scripts\Build-Release.ps1
 本项目源码使用 [MIT License](LICENSE)。第三方组件和图标来源见
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
 
-当前 Harness 来源为官方标签 [`dsh-v0.1.2-rc.1`](https://github.com/deepseek-ai/deepseek-harness/releases/tag/dsh-v0.1.2-rc.1)，提交 `a66e4702047846cdaa10c66c9d3df3951f5ea70d`。该版本仍是 Developer Preview / Release Candidate，尚未完成安全审计，可能包含破坏性兼容变更；沙箱、审批和权限控制也不能保证完全隔离。本项目不修改 Harness UI 或功能实现。
+当前 Harness 来源为官方标签 [`dsh-v0.1.3-alpha.2`](https://github.com/deepseek-ai/deepseek-harness/releases/tag/dsh-v0.1.3-alpha.2)，提交 `82a5fd61a7cf5c293cec4bdff68f455398d685e9`。该版本仍是 Developer Preview / Alpha，尚未完成安全审计，可能包含破坏性兼容变更；沙箱、审批和权限控制也不能保证完全隔离。本项目不修改 Harness UI 或功能实现。

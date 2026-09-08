@@ -8,7 +8,7 @@ param(
     [string]$UpstreamCommit,
     [Parameter(Mandatory)]
     [string]$HarnessVersion,
-    [string]$DesktopVersion = '1.5.0'
+    [string]$DesktopVersion = '1.6.0'
 )
 
 Set-StrictMode -Version Latest
@@ -50,6 +50,53 @@ $tarballs = @($packRoots | ForEach-Object {
 if ($tarballs.Count -eq 0) {
     throw 'No packed tarballs were found.'
 }
+
+# fs-ext has no upstream Windows prebuild. Ship the binding compiled with the
+# bundled Node ABI so end users never need Python or Visual Studio.
+$nativeNodeVersion = (& node --version).Trim().TrimStart('v')
+$nativePlatform = (& node -p "process.platform + '-' + process.arch").Trim()
+$nativeAbi = (& node -p 'process.versions.modules').Trim()
+if ($nativePlatform -ne 'win32-x64' -or $nativeNodeVersion -ne '24.14.1') {
+    throw 'Import requires Windows x64 and Node.js 24.14.1 for the fs-ext binding.'
+}
+$fsExtRoot = (& node -p "require('node:path').dirname(require.resolve('fs-ext/package.json', { paths: [process.argv[1]] }))" `
+    (Join-Path $sourceRoot 'packages\session\session-persistence-jsonl')).Trim()
+if ($LASTEXITCODE -ne 0) { throw 'Cannot resolve the upstream fs-ext installation.' }
+$fsExtPackage = Get-Content -LiteralPath (Join-Path $fsExtRoot 'package.json') -Raw | ConvertFrom-Json
+if ($fsExtPackage.version -ne '2.1.1') { throw 'Review the new fs-ext version before importing.' }
+& node -e "require(process.argv[1]); console.log('fs-ext native binding loaded')" $fsExtRoot
+if ($LASTEXITCODE -ne 0) { throw 'The compiled fs-ext binding cannot load.' }
+$nativeStage = Join-Path $projectRoot ".build-cache\fs-ext-prebuilt-$([Guid]::NewGuid().ToString('N'))"
+$nativePackageRoot = Join-Path $nativeStage 'package'
+New-Item -ItemType Directory -Path (Join-Path $nativePackageRoot 'build\Release') -Force | Out-Null
+foreach ($name in 'fs-ext.js','fs-ext.cc','binding.gyp','LICENSE.txt','README.md') {
+    Copy-Item -LiteralPath (Join-Path $fsExtRoot $name) -Destination $nativePackageRoot
+}
+Copy-Item -LiteralPath (Join-Path $fsExtRoot 'build\Release\fs_ext.node') `
+    -Destination (Join-Path $nativePackageRoot 'build\Release\fs_ext.node')
+$fsExtPackage.scripts = [pscustomobject]@{}
+$fsExtPackage | Add-Member -NotePropertyName gypfile -NotePropertyValue $false -Force
+$fsExtPackage | Add-Member -NotePropertyName os -NotePropertyValue @('win32') -Force
+$fsExtPackage | Add-Member -NotePropertyName cpu -NotePropertyValue @('x64') -Force
+$fsExtPackage.engines.node = '>=24.0.0 <25.0.0'
+$fsExtPackage | ConvertTo-Json -Depth 10 | Set-Content `
+    -LiteralPath (Join-Path $nativePackageRoot 'package.json') -Encoding utf8NoBOM
+$nativeProvenance = [ordered]@{
+    package = 'fs-ext'
+    version = '2.1.1'
+    source = 'https://registry.npmjs.org/fs-ext/-/fs-ext-2.1.1.tgz'
+    nodeVersion = $nativeNodeVersion
+    nodeAbi = $nativeAbi
+    platform = $nativePlatform
+    bindingSha256 = (Get-FileHash -LiteralPath (Join-Path $nativePackageRoot 'build\Release\fs_ext.node')).Hash
+    changes = 'Unmodified binding and JS; precompiled Windows x64 binary; install scripts disabled.'
+}
+$nativeProvenance | ConvertTo-Json | Set-Content `
+    -LiteralPath (Join-Path $nativePackageRoot 'PREBUILD.json') -Encoding utf8NoBOM
+$nativeArchive = Join-Path $nativeStage 'fs-ext-2.1.1-win32-x64-node24.tgz'
+& tar -czf $nativeArchive -C $nativeStage package
+if ($LASTEXITCODE -ne 0) { throw 'Cannot pack the fs-ext native runtime.' }
+$tarballs += Get-Item -LiteralPath $nativeArchive
 
 if (Test-Path -LiteralPath $packagesRoot) {
     Remove-Item -LiteralPath $packagesRoot -Recurse -Force
@@ -130,6 +177,7 @@ $dshSpec = $dependencies['@deepseek-ai/dsh']
     upstreamCommit = $UpstreamCommit
     harnessVersion = $HarnessVersion
     packageCount = $dependencies.Count
+    nativePrebuild = $nativeProvenance
 } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $runtimeRoot 'SOURCE.json') -Encoding utf8NoBOM
 
 $workspaceLines = [Collections.Generic.List[string]]::new()
@@ -140,6 +188,8 @@ $workspaceLines.Add('  esbuild: true')
 $workspaceLines.Add('  koffi: true')
 $workspaceLines.Add('  node-pty: true')
 $workspaceLines.Add('  protobufjs: false')
+$workspaceLines.Add('  node-addon-require-builtin: false')
+$workspaceLines.Add('  fs-ext: false')
 $workspaceLines.Add('overrides:')
 foreach ($dependency in $dependencies.GetEnumerator()) {
     $name = ([string]$dependency.Key).Replace("'", "''")

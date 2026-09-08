@@ -12,7 +12,7 @@ namespace DshDesktop;
 
 internal sealed class DshServerManager : IDisposable
 {
-    public const string HarnessVersion = "0.1.2-rc.1";
+    public const string HarnessVersion = "0.1.3-alpha.2";
 
     private const int MaxLogCharacters = 512 * 1024;
 
