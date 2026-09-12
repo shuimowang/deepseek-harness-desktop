@@ -1,8 +1,8 @@
 [CmdletBinding()]
 param(
-    [string]$Version = '1.6.0',
+    [string]$Version = '1.7.0',
     [string]$NodeVersion = '24.14.1',
-    [string]$HarnessVersion = '0.1.3-alpha.2',
+    [string]$HarnessVersion = '0.1.5-rc.2',
     [switch]$OnlineLite,
     [switch]$SkipRuntimeBundle
 )
@@ -41,7 +41,7 @@ $runtimePackage = Get-Content -LiteralPath $runtimePackageJson -Raw | ConvertFro
 $runtimeSource = Get-Content -LiteralPath $runtimePackageSource -Raw | ConvertFrom-Json
 $harnessPackageSpec = $runtimePackage.dependencies.'@deepseek-ai/dsh'
 $lockedHarnessVersion = $runtimeSource.harnessVersion
-if ($runtimeSource.nativePrebuild.nodeVersion -ne $NodeVersion) {
+if ($null -ne $runtimeSource.nativePrebuild -and $runtimeSource.nativePrebuild.nodeVersion -ne $NodeVersion) {
     throw "Native binding targets Node.js $($runtimeSource.nativePrebuild.nodeVersion), not $NodeVersion."
 }
 if ($harnessPackageSpec -notmatch '^file:packages/' -or

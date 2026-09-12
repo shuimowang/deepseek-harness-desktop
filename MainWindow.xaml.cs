@@ -11,6 +11,8 @@ namespace DshDesktop;
 public partial class MainWindow : Window
 {
     private static readonly Uri PreferredAppUri = new("http://127.0.0.1:3080/");
+    private static readonly string UpstreamProjectUrl =
+        "https://github.com/deepseek-ai/deepseek-harness";
 
     private readonly DshServerManager _server;
     private readonly RecoveryManager _recovery;
@@ -426,6 +428,11 @@ public partial class MainWindow : Window
     private void OpenBrowserButton_Click(object sender, RoutedEventArgs e)
     {
         OpenExternal(_server.AppUri.AbsoluteUri);
+    }
+
+    private void OpenUpstreamButton_Click(object sender, RoutedEventArgs e)
+    {
+        OpenExternal(UpstreamProjectUrl);
     }
 
     private async void RetryButton_Click(object sender, RoutedEventArgs e)

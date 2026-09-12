@@ -60,8 +60,7 @@ and dependency notices remain in `runtime/node`. The online package uses Node.js
 version. DeepSeek Harness npm packages retain their package metadata and license files under
 `runtime/dsh/node_modules`.
 
-The fs-ext 2.1.1 package is redistributed under its MIT license with an unmodified
-Windows x64 binding compiled for the bundled Node.js 24.14.1 (ABI 137).
-Its install scripts are disabled to avoid requiring a compiler on user machines.
-The redistributed package retains the upstream JavaScript, C++ source, license,
-and a PREBUILD.json record containing the binary SHA-256 and build target.
+When an upstream release requires a native package without a Windows prebuild,
+the importer may redistribute its unmodified source and license with a binding
+compiled for the bundled Node.js ABI. Such packages have install scripts disabled
+and carry a provenance record with the binary SHA-256 and build target.

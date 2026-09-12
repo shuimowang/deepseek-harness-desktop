@@ -88,6 +88,11 @@
                             Content="&#xE774;"
                             ToolTip="在默认浏览器中打开"
                             Click="OpenBrowserButton_Click" />
+                    <Button x:Name="UpstreamButton"
+                            Style="{StaticResource ToolbarButton}"
+                            Content="&#xE71B;"
+                            ToolTip="打开 DeepSeek Harness 官方项目"
+                            Click="OpenUpstreamButton_Click" />
                 </StackPanel>
             </Grid>
         </Border>

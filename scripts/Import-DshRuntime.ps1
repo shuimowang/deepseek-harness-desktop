@@ -8,7 +8,7 @@ param(
     [string]$UpstreamCommit,
     [Parameter(Mandatory)]
     [string]$HarnessVersion,
-    [string]$DesktopVersion = '1.6.0'
+    [string]$DesktopVersion = '1.7.0'
 )
 
 Set-StrictMode -Version Latest
@@ -51,8 +51,12 @@ if ($tarballs.Count -eq 0) {
     throw 'No packed tarballs were found.'
 }
 
-# fs-ext has no upstream Windows prebuild. Ship the binding compiled with the
-# bundled Node ABI so end users never need Python or Visual Studio.
+$nativeProvenance = $null
+# Older Harness releases use fs-ext without a Windows prebuild. If the
+# current upstream release no longer carries it, keep the runtime unchanged.
+if ((Get-Content -LiteralPath (Join-Path $sourceRoot 'packages\session\session-persistence-jsonl\package.json') -Raw) -match '"fs-ext"\s*:') {
+# Ship the binding compiled with the bundled Node ABI so end users never need
+# Python or Visual Studio.
 $nativeNodeVersion = (& node --version).Trim().TrimStart('v')
 $nativePlatform = (& node -p "process.platform + '-' + process.arch").Trim()
 $nativeAbi = (& node -p 'process.versions.modules').Trim()
@@ -97,6 +101,7 @@ $nativeArchive = Join-Path $nativeStage 'fs-ext-2.1.1-win32-x64-node24.tgz'
 & tar -czf $nativeArchive -C $nativeStage package
 if ($LASTEXITCODE -ne 0) { throw 'Cannot pack the fs-ext native runtime.' }
 $tarballs += Get-Item -LiteralPath $nativeArchive
+}
 
 if (Test-Path -LiteralPath $packagesRoot) {
     Remove-Item -LiteralPath $packagesRoot -Recurse -Force
@@ -189,7 +194,9 @@ $workspaceLines.Add('  koffi: true')
 $workspaceLines.Add('  node-pty: true')
 $workspaceLines.Add('  protobufjs: false')
 $workspaceLines.Add('  node-addon-require-builtin: false')
-$workspaceLines.Add('  fs-ext: false')
+if ($null -ne $nativeProvenance) {
+    $workspaceLines.Add('  fs-ext: false')
+}
 $workspaceLines.Add('overrides:')
 foreach ($dependency in $dependencies.GetEnumerator()) {
     $name = ([string]$dependency.Key).Replace("'", "''")
