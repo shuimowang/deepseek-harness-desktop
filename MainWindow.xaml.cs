@@ -46,6 +46,15 @@ public partial class MainWindow : Window
             if (!_isClosing && StartupPanel.Visibility == Visibility.Visible)
             {
                 StartupDetail.Text = message;
+                StartupHint.Visibility = message.Contains("首次运行", StringComparison.Ordinal)
+                    ? Visibility.Visible
+                    : Visibility.Collapsed;
+                if (message.Contains("首次运行", StringComparison.Ordinal))
+                {
+                    StartupHint.Text =
+                        "在线版首次运行会自动下载并安装约 500 个依赖，" +
+                        "通常需要几分钟；请保持窗口打开。网络异常时可点击“重试”。";
+                }
             }
         });
     }
@@ -179,6 +188,7 @@ public partial class MainWindow : Window
         StartupPanel.Visibility = Visibility.Visible;
         StartupTitle.Text = title;
         StartupDetail.Text = detail;
+        StartupHint.Visibility = Visibility.Collapsed;
         StartupProgress.IsIndeterminate = true;
     }
 

@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [string]$Version = '1.8.0',
+    [string]$Version = '1.8.1',
     [string]$NodeVersion = '24.14.1',
     [string]$HarnessVersion = '0.1.6-alpha.2',
     [switch]$OnlineLite,

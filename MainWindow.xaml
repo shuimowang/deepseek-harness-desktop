@@ -123,6 +123,16 @@
                                TextAlignment="Center"
                                FontSize="12"
                                Foreground="{StaticResource MutedTextBrush}" />
+                    <TextBlock x:Name="StartupHint"
+                               Text="在线版首次运行会下载并安装依赖，通常需要几分钟；想解压即用请下载离线完整版。"
+                               Margin="0,14,0,0"
+                               HorizontalAlignment="Center"
+                               TextAlignment="Center"
+                               TextWrapping="Wrap"
+                               FontSize="11"
+                               LineHeight="18"
+                               Foreground="{StaticResource MutedTextBrush}"
+                               Visibility="Collapsed" />
                 </StackPanel>
             </Grid>
 

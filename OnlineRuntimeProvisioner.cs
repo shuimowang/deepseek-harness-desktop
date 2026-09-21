@@ -70,6 +70,8 @@ internal sealed record OnlineRuntimePaths(string NodeExecutable, string DshEntry
 internal sealed class OnlineRuntimeProvisioner
 {
     private const string InstallationMarkerName = ".install-complete.json";
+    private const string PreferredNpmRegistry = "https://registry.npmmirror.com";
+    private static readonly TimeSpan InstallTimeout = TimeSpan.FromMinutes(10);
 
     private static readonly string ApplicationBaseDirectory =
         Path.GetDirectoryName(typeof(OnlineRuntimeProvisioner).Assembly.Location)
@@ -254,7 +256,9 @@ internal sealed class OnlineRuntimeProvisioner
             throw new FileNotFoundException("Node.js 安装中缺少 Corepack，无法安装 DeepSeek Harness。");
         }
 
-        _progress($"正在准备 DeepSeek Harness {spec.HarnessVersion}...");
+        _progress(
+            $"正在准备 DeepSeek Harness {spec.HarnessVersion}，" +
+            "首次运行将下载并安装约 500 个依赖...");
         var installLogPath = Path.Combine(runtimeRoot, "logs", "install.log");
         Directory.CreateDirectory(dshDirectory);
         TryDeleteFile(Path.Combine(dshDirectory, InstallationMarkerName));
@@ -299,6 +303,16 @@ internal sealed class OnlineRuntimeProvisioner
         startInfo.ArgumentList.Add("--prod");
         startInfo.ArgumentList.Add("--reporter");
         startInfo.ArgumentList.Add("append-only");
+        startInfo.ArgumentList.Add("--registry");
+        startInfo.ArgumentList.Add(PreferredNpmRegistry);
+        startInfo.ArgumentList.Add("--fetch-timeout");
+        startInfo.ArgumentList.Add("120000");
+        startInfo.ArgumentList.Add("--fetch-retries");
+        startInfo.ArgumentList.Add("2");
+        startInfo.ArgumentList.Add("--fetch-retry-mintimeout");
+        startInfo.ArgumentList.Add("1000");
+        startInfo.ArgumentList.Add("--fetch-retry-maxtimeout");
+        startInfo.ArgumentList.Add("10000");
         startInfo.ArgumentList.Add("--store-dir");
         startInfo.ArgumentList.Add(Path.Combine(runtimeRoot, "pnpm-store"));
         startInfo.Environment["PATH"] = nodeDirectory + Path.PathSeparator +
@@ -306,6 +320,7 @@ internal sealed class OnlineRuntimeProvisioner
         startInfo.Environment["COREPACK_HOME"] = Path.Combine(runtimeRoot, "corepack-cache");
         startInfo.Environment["PNPM_HOME"] = Path.Combine(runtimeRoot, "pnpm-home");
         startInfo.Environment["CI"] = "true";
+        startInfo.Environment["NPM_CONFIG_REGISTRY"] = PreferredNpmRegistry;
 
         var tail = new Queue<string>();
         var tailLock = new object();
@@ -341,13 +356,29 @@ internal sealed class OnlineRuntimeProvisioner
             process.BeginErrorReadLine();
             var elapsed = Stopwatch.StartNew();
             var exitTask = process.WaitForExitAsync(cancellationToken);
-            while (!exitTask.IsCompleted)
+            var timeoutTask = Task.Delay(InstallTimeout, cancellationToken);
+            while (true)
             {
                 var delayTask = Task.Delay(TimeSpan.FromSeconds(5), cancellationToken);
-                if (await Task.WhenAny(exitTask, delayTask) == delayTask)
+                var completed = await Task.WhenAny(exitTask, delayTask, timeoutTask);
+                if (completed == exitTask)
+                {
+                    break;
+                }
+
+                cancellationToken.ThrowIfCancellationRequested();
+                if (completed == timeoutTask)
+                {
+                    throw new TimeoutException(
+                        $"依赖安装超过 {InstallTimeout.TotalMinutes:0} 分钟，已停止本次安装。" +
+                        "请检查网络后点击“重试”；已下载的内容会保留。");
+                }
+
+                if (completed == delayTask)
                 {
                     _progress(
-                        $"正在下载安装已锁定的依赖，已用时 {FormatElapsed(elapsed.Elapsed)}...");
+                        $"正在下载安装已锁定的依赖，已用时 {FormatElapsed(elapsed.Elapsed)}。" +
+                        "首次运行通常需要几分钟，请保持窗口打开...");
                 }
             }
 

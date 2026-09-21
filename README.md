@@ -40,13 +40,13 @@
 
 ### 在线轻量版（推荐分享）
 
-`DeepSeekHarness-1.8.0-win-x64-online.zip` 小于 100 MB，适合 GitHub Release
+`DeepSeekHarness-1.8.1-win-x64-online.zip` 小于 100 MB，适合 GitHub Release
 和蓝奏云。
 
 #### 运行环境
 
 - Windows 10 或 Windows 11 x64。
-- 首次启动时能访问 `nodejs.org` 和 `registry.npmjs.org`。如果使用代理、公司网络或防火墙，需要允许访问这两个地址。
+- 首次启动时能访问 `nodejs.org` 和 npm 镜像站。如果使用代理、公司网络或防火墙，需要允许访问 Node.js 下载地址和 `registry.npmmirror.com`。
 - 普通用户权限即可，不需要以管理员身份运行。
 - 解压目录、`%LOCALAPPDATA%` 和“文档”目录需要有写入权限。
 - 内嵌界面需要 Microsoft Edge WebView2 Runtime；Windows 10/11 通常已经包含。缺失时客户端仍可运行，并会提示用户点击后在系统默认浏览器中打开。
@@ -61,10 +61,10 @@
 客户端会自动：
 
 1. 从 nodejs.org 下载并校验 Node.js 24.14.1；
-2. 通过 Node.js 自带的 Corepack 启动固定的 pnpm 11.8.0，从压缩包内的官方标签 tarball 安装 `@deepseek-ai/dsh@0.1.6-alpha.2`，并按生产锁文件从 npm registry 并行下载外部依赖；
+2. 通过 Node.js 自带的 Corepack 启动固定的 pnpm 11.7.0，从压缩包内的官方标签 tarball 安装 `@deepseek-ai/dsh@0.1.6-alpha.2`，并按生产锁文件从 npm 镜像并行下载外部依赖；
 3. 将运行时保存到 `%LOCALAPPDATA%\DeepSeekHarness\Runtime`，后续启动和客户端更新直接复用。
 
-`v1.8.0` 不会从 npm 查找 Harness 包，也不会由每台电脑重新求解完整依赖树。首次安装和 Profile 初始化通常需要数分钟；网络较慢、磁盘性能较低或杀毒软件逐文件扫描时，可能需要十几分钟或更久。窗口会持续显示当前阶段与已用时间，请不要在仍有进度提示时重复启动。安装被正常关闭或文件被临时占用时，已下载的 pnpm 缓存会保留，下次启动继续利用，不会全部重新下载。客户端升级后，只要内置的运行时版本没有变化，就不需要重新下载。
+`v1.8.1` 不会从 npm 查找 Harness 包，也不会由每台电脑重新求解完整依赖树。首次安装和 Profile 初始化通常需要数分钟；在线安装会使用 `registry.npmmirror.com`，并限制网络重试时间，避免网络异常时无限等待。窗口会持续显示当前阶段与已用时长，请不要在仍有进度提示时重复启动。安装被正常关闭或文件被临时占用时，已下载的 pnpm 缓存会保留，下次启动继续利用，不会全部重新下载。客户端升级后，只要内置的运行时版本没有变化，就不需要重新下载。
 
 安装诊断日志位于 `%LOCALAPPDATA%\DeepSeekHarness\Runtime\logs\install.log`。安装失败时，界面会同时显示保留目录和日志位置。
 
@@ -72,7 +72,7 @@
 
 ### 离线完整版
 
-从发布包中获取 `DeepSeekHarness-1.8.0-win-x64.zip`：
+从发布包中获取 `DeepSeekHarness-1.8.1-win-x64.zip`：
 
 1. 将 ZIP 完整解压到一个普通文件夹，不要直接在压缩包里运行。
 2. 双击 `DeepSeekHarness.exe`。
@@ -96,7 +96,7 @@ powershell -ExecutionPolicy Bypass -File .\Install-DesktopShortcut.ps1 -Remove
 `.sha256` 文件，用户可用以下命令核对下载完整性：
 
 ```powershell
-Get-FileHash .\DeepSeekHarness-1.8.0-win-x64.zip -Algorithm SHA256
+Get-FileHash .\DeepSeekHarness-1.8.1-win-x64.zip -Algorithm SHA256
 ```
 
 ## 数据位置
@@ -110,7 +110,7 @@ Get-FileHash .\DeepSeekHarness-1.8.0-win-x64.zip -Algorithm SHA256
 
 客户端不会在安装目录保存用户会话。升级时可以直接替换程序文件夹。
 
-`v1.8.0` 内置的 Harness `0.1.6-alpha.2` 使用 Session v2 格式，会将旧 v0/v1 日志迁移到新的 generation。升级前请退出旧客户端，并备份 Harness 数据目录（默认 `%USERPROFILE%\.dsh`，设置了 `DSH_HOME` 时以该目录为准）。不要让新旧版本同时使用同一份数据；旧日志被保留不代表降级后能读取新版产生的内容。自定义插件或 persona 配置可能需要按上游 0.1.6 的接口变化适配。
+`v1.8.1` 内置的 Harness `0.1.6-alpha.2` 使用 Session v2 格式，会将旧 v0/v1 日志迁移到新的 generation。升级前请退出旧客户端，并备份 Harness 数据目录（默认 `%USERPROFILE%\.dsh`，设置了 `DSH_HOME` 时以该目录为准）。不要让新旧版本同时使用同一份数据；旧日志被保留不代表降级后能读取新版产生的内容。自定义插件或 persona 配置可能需要按上游 0.1.6 的接口变化适配。
 
 ## 故障恢复
 
