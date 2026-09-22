@@ -8,7 +8,7 @@ param(
     [string]$UpstreamCommit,
     [Parameter(Mandatory)]
     [string]$HarnessVersion,
-    [string]$DesktopVersion = '1.8.0'
+    [string]$DesktopVersion = '1.9.0'
 )
 
 Set-StrictMode -Version Latest
@@ -152,7 +152,8 @@ while ($pending.Count -gt 0) {
         if ($package.PSObject.Properties.Name -notcontains $field) {
             continue
         }
-        foreach ($dependencyName in $package.$field.PSObject.Properties.Name) {
+        foreach ($dependencyProperty in $package.$field.PSObject.Properties) {
+            $dependencyName = $dependencyProperty.Name
             if ($packageRecords.ContainsKey($dependencyName) -and -not $reachable.Contains($dependencyName)) {
                 $pending.Enqueue($dependencyName)
             }

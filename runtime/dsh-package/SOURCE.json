@@ -1,7 +1,7 @@
 {
-  "upstreamTag": "dsh-v0.1.6-alpha.2",
-  "upstreamCommit": "ddefc45fbc7f8e46dd73185e68295696d1297887",
-  "harnessVersion": "0.1.6-alpha.2",
-  "packageCount": 258,
+  "upstreamTag": "dsh-v0.1.7-alpha.2",
+  "upstreamCommit": "00102833dfaee1da9f48a3a8eae9d34005a75218",
+  "harnessVersion": "0.1.7-alpha.2",
+  "packageCount": 275,
   "nativePrebuild": null
 }

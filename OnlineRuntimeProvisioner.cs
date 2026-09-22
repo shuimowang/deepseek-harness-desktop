@@ -318,6 +318,7 @@ internal sealed class OnlineRuntimeProvisioner
         startInfo.Environment["PATH"] = nodeDirectory + Path.PathSeparator +
             (Environment.GetEnvironmentVariable("PATH") ?? string.Empty);
         startInfo.Environment["COREPACK_HOME"] = Path.Combine(runtimeRoot, "corepack-cache");
+        startInfo.Environment["COREPACK_NPM_REGISTRY"] = PreferredNpmRegistry;
         startInfo.Environment["PNPM_HOME"] = Path.Combine(runtimeRoot, "pnpm-home");
         startInfo.Environment["CI"] = "true";
         startInfo.Environment["NPM_CONFIG_REGISTRY"] = PreferredNpmRegistry;
