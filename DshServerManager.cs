@@ -94,8 +94,16 @@ internal sealed class DshServerManager : IDisposable
         if (probe == ProbeResult.OtherHttpServer)
         {
             var previousPort = AppUri.Port;
-            AppUri = new Uri($"http://127.0.0.1:{FindAvailableLoopbackPort()}/");
+            AppUri = WithAvailableLoopbackPort();
             AppendLog($"Port {previousPort} is occupied by another HTTP service; using {AppUri.Port} instead.");
+        }
+        else if (!CanBindLoopbackPort(AppUri.Port))
+        {
+            var previousPort = AppUri.Port;
+            AppUri = WithAvailableLoopbackPort();
+            AppendLog(
+                $"Port {previousPort} is unavailable to this process (possibly reserved by Windows); " +
+                $"using {AppUri.Port} instead.");
         }
 
         DisposeExitedProcess();
@@ -584,6 +592,27 @@ internal sealed class DshServerManager : IDisposable
         finally
         {
             listener.Stop();
+        }
+    }
+
+    private Uri WithAvailableLoopbackPort() =>
+        new($"http://127.0.0.1:{FindAvailableLoopbackPort()}/");
+
+    private static bool CanBindLoopbackPort(int port)
+    {
+        try
+        {
+            using var listener = new TcpListener(IPAddress.Loopback, port);
+            listener.Start();
+            return true;
+        }
+        catch (SocketException)
+        {
+            return false;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return false;
         }
     }
 

@@ -40,7 +40,7 @@
 
 ### 在线轻量版（推荐分享）
 
-`DeepSeekHarness-1.9.0-win-x64-online.zip` 小于 100 MB，适合 GitHub Release
+`DeepSeekHarness-1.9.1-win-x64-online.zip` 小于 100 MB，适合 GitHub Release
 和蓝奏云。
 
 #### 运行环境
@@ -64,7 +64,7 @@
 2. 通过 Node.js 自带的 Corepack 从镜像获取固定的 pnpm 11.7.0，从压缩包内的官方标签 tarball 安装 `@deepseek-ai/dsh@0.1.7-alpha.2`，并按生产锁文件从 npm 镜像并行下载外部依赖；
 3. 将运行时保存到 `%LOCALAPPDATA%\DeepSeekHarness\Runtime`，后续启动和客户端更新直接复用。
 
-`v1.9.0` 不会从 npm 查找 Harness 包，也不会由每台电脑重新求解完整依赖树。首次安装和 Profile 初始化通常需要数分钟；在线安装会使用 `registry.npmmirror.com`，并限制网络重试时间，避免网络异常时无限等待。窗口会持续显示当前阶段与已用时长，请不要在仍有进度提示时重复启动。安装被正常关闭或文件被临时占用时，已下载的 pnpm 缓存会保留，下次启动继续利用，不会全部重新下载。客户端升级后，只要内置的运行时版本没有变化，就不需要重新下载。
+`v1.9.1` 不会从 npm 查找 Harness 包，也不会由每台电脑重新求解完整依赖树。首次安装和 Profile 初始化通常需要数分钟；在线安装会使用 `registry.npmmirror.com`，并限制网络重试时间，避免网络异常时无限等待。窗口会持续显示当前阶段与已用时长，请不要在仍有进度提示时重复启动。安装被正常关闭或文件被临时占用时，已下载的 pnpm 缓存会保留，下次启动继续利用，不会全部重新下载。客户端升级后，只要内置的运行时版本没有变化，就不需要重新下载。
 
 安装诊断日志位于 `%LOCALAPPDATA%\DeepSeekHarness\Runtime\logs\install.log`。安装失败时，界面会同时显示保留目录和日志位置。
 
@@ -72,7 +72,7 @@
 
 ### 离线完整版
 
-从发布包中获取 `DeepSeekHarness-1.9.0-win-x64.zip`：
+从发布包中获取 `DeepSeekHarness-1.9.1-win-x64.zip`：
 
 1. 将 ZIP 完整解压到一个普通文件夹，不要直接在压缩包里运行。
 2. 双击 `DeepSeekHarness.exe`。
@@ -96,7 +96,7 @@ powershell -ExecutionPolicy Bypass -File .\Install-DesktopShortcut.ps1 -Remove
 `.sha256` 文件，用户可用以下命令核对下载完整性：
 
 ```powershell
-Get-FileHash .\DeepSeekHarness-1.9.0-win-x64.zip -Algorithm SHA256
+Get-FileHash .\DeepSeekHarness-1.9.1-win-x64.zip -Algorithm SHA256
 ```
 
 ## 数据位置
@@ -110,7 +110,7 @@ Get-FileHash .\DeepSeekHarness-1.9.0-win-x64.zip -Algorithm SHA256
 
 客户端不会在安装目录保存用户会话。升级时可以直接替换程序文件夹。
 
-`v1.9.0` 内置 Harness `0.1.7-alpha.2`，Session 日志升级到 V4。升级前请退出旧客户端，并备份 Harness 数据目录（默认 `%USERPROFILE%\.dsh`，设置了 `DSH_HOME` 时以该目录为准）。不要让新旧版本同时使用同一份数据；保留旧日志不代表旧版能读取新版产生的内容。
+`v1.9.1` 内置 Harness `0.1.7-alpha.2`，Session 日志升级到 V4。升级前请退出旧客户端，并备份 Harness 数据目录（默认 `%USERPROFILE%\.dsh`，设置了 `DSH_HOME` 时以该目录为准）。不要让新旧版本同时使用同一份数据；保留旧日志不代表旧版能读取新版产生的内容。
 
 本次上游调整了设置和插件接口：设置保存到当前 Profile 的插件配置，旧 `settings.yaml` 只尝试导入一次；旧目录形式的 Agent 预设需迁移到插件组合包。官方 DeepSeek 适配器仅使用 Messages API，旧自定义配置需移除 `protocol` 并使用兼容地址。自定义 `spill-policy` 的 `maxInlineBytes` 需改为 `maxInlineTokens`。普通用户无需手动修改未使用的选项，第三方插件需由作者适配。
 

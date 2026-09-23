@@ -8,7 +8,7 @@ param(
     [string]$UpstreamCommit,
     [Parameter(Mandatory)]
     [string]$HarnessVersion,
-    [string]$DesktopVersion = '1.9.0'
+    [string]$DesktopVersion = '1.9.1'
 )
 
 Set-StrictMode -Version Latest
